@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GiveWell-Style CEA Tool</title>
+<title>IDinsight | CEA Tool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -11,9 +14,10 @@
 :root {
   --sidebar-w: 280px;
   --bg: #f7f8fa;
-  --sidebar-bg: #1e293b;
-  --sidebar-text: #cbd5e1;
-  --accent: #3b82f6;
+  --sidebar-bg: #1a1f3a;
+  --sidebar-text: #b0b8d1;
+  --accent: #d4a843;
+  --accent-hover: #c49a3a;
   --orange: #f59e0b;
   --blue: #3b82f6;
   --green: #10b981;
@@ -22,12 +26,12 @@
   --text-light: #64748b;
   --border: #e2e8f0;
   --card-bg: #fff;
-  --user-bg: #3b82f6;
+  --user-bg: #d4a843;
   --assistant-bg: #fff;
   --radius: 8px;
 }
 
-html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); background: var(--bg); }
+html, body { height: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); background: var(--bg); }
 
 /* Layout */
 .app { display: flex; height: 100vh; }
@@ -35,9 +39,15 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 /* Sidebar */
 .sidebar {
   width: var(--sidebar-w); min-width: var(--sidebar-w);
-  background: var(--sidebar-bg); color: var(--sidebar-text);
+  background: var(--sidebar-bg) url('background-blue-urban.png') center/cover no-repeat; color: var(--sidebar-text);
   display: flex; flex-direction: column; padding: 24px 16px;
+  position: relative;
 }
+.sidebar::before {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(26, 31, 58, 0.85);
+}
+.sidebar > * { position: relative; z-index: 1; }
 .sidebar h1 { color: #fff; font-size: 18px; margin-bottom: 4px; }
 .sidebar .subtitle { font-size: 12px; color: var(--sidebar-text); margin-bottom: 24px; }
 .sidebar label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; }
@@ -45,7 +55,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   width: 100%; padding: 8px 10px; border: 1px solid #475569; border-radius: var(--radius);
   background: #334155; color: #fff; font-size: 13px; outline: none;
 }
-.sidebar input:focus { border-color: var(--accent); }
+.sidebar input:focus { border-color: #d4a843; }
 .sidebar input::placeholder { color: #64748b; }
 .key-status { font-size: 11px; margin-top: 4px; min-height: 16px; }
 .key-status.ok { color: var(--green); }
@@ -56,8 +66,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   display: block; width: 100%; padding: 10px; border: none; border-radius: var(--radius);
   font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
 }
-.btn-primary { background: var(--accent); color: #fff; margin-bottom: 8px; }
-.btn-primary:hover { background: #2563eb; }
+.btn-primary { background: var(--accent); color: #1a1f3a; font-weight: 700; margin-bottom: 8px; }
+.btn-primary:hover { background: var(--accent-hover); }
 .btn-ghost { background: transparent; color: var(--sidebar-text); border: 1px solid #475569; }
 .btn-ghost:hover { background: #334155; }
 
@@ -104,10 +114,10 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .chat-input:focus { border-color: var(--accent); }
 .send-btn {
   padding: 0 20px; border: none; border-radius: var(--radius);
-  background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: #1a1f3a; font-size: 14px; font-weight: 700; cursor: pointer;
   white-space: nowrap;
 }
-.send-btn:hover { background: #2563eb; }
+.send-btn:hover { background: var(--accent-hover); }
 .send-btn:disabled { background: #94a3b8; cursor: not-allowed; }
 .reset-btn {
   padding: 0 16px; border: 1px solid var(--border); border-radius: var(--radius);
@@ -130,7 +140,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   padding: 12px 16px; background: var(--card-bg); border: 1px solid var(--border);
   border-radius: var(--radius); font-size: 13px; color: var(--text); cursor: pointer;
 }
-.welcome-example:hover { border-color: var(--accent); background: #eff6ff; }
+.welcome-example:hover { border-color: #d4a843; background: #fdf8ed; }
 .welcome-input-wrap {
   display: flex; gap: 8px; margin-top: 16px;
 }
@@ -237,7 +247,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 <div class="app">
   <!-- Sidebar -->
   <div class="sidebar">
-    <h1>CEA Tool</h1>
+    <h1>IDinsight | <span style="color:#d4a843;">CEA Tool</span></h1>
     <div class="subtitle">GiveWell-Style Cost-Effectiveness Analysis</div>
 
     <label for="api-key">Anthropic API Key</label>
@@ -251,7 +261,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 
     <div class="sidebar-footer">
       Browser-only &middot; Your key stays in this tab<br>
-      Powered by Claude Sonnet 4.5
+      Made by <a href="https://idinsight.org" style="color:#d4a843;">IDinsight</a>
     </div>
   </div>
 
@@ -260,7 +270,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
     <!-- Welcome screen (shown initially) -->
     <div class="welcome" id="welcome-screen">
       <div class="welcome-card">
-        <h2>GiveWell-Style CEA</h2>
+        <h2>IDinsight | <span style="color:#d4a843;">CEA Tool</span></h2>
         <p>Describe an intervention and I'll run a rigorous cost-effectiveness analysis using GiveWell's methodology — with Low, Base, and High scenarios.</p>
         <p style="font-size:12px; color:var(--text-light);">Enter your Anthropic API key in the sidebar to get started.</p>
         <div class="welcome-input-wrap">
