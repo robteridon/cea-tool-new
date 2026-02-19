@@ -1,12 +1,914 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CEA Tool</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GiveWell-Style CEA Tool</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --sidebar-w: 280px;
+  --bg: #f7f8fa;
+  --sidebar-bg: #1e293b;
+  --sidebar-text: #cbd5e1;
+  --accent: #3b82f6;
+  --orange: #f59e0b;
+  --blue: #3b82f6;
+  --green: #10b981;
+  --red: #ef4444;
+  --text: #1e293b;
+  --text-light: #64748b;
+  --border: #e2e8f0;
+  --card-bg: #fff;
+  --user-bg: #3b82f6;
+  --assistant-bg: #fff;
+  --radius: 8px;
+}
+
+html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); background: var(--bg); }
+
+/* Layout */
+.app { display: flex; height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-w); min-width: var(--sidebar-w);
+  background: var(--sidebar-bg); color: var(--sidebar-text);
+  display: flex; flex-direction: column; padding: 24px 16px;
+}
+.sidebar h1 { color: #fff; font-size: 18px; margin-bottom: 4px; }
+.sidebar .subtitle { font-size: 12px; color: var(--sidebar-text); margin-bottom: 24px; }
+.sidebar label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; }
+.sidebar input {
+  width: 100%; padding: 8px 10px; border: 1px solid #475569; border-radius: var(--radius);
+  background: #334155; color: #fff; font-size: 13px; outline: none;
+}
+.sidebar input:focus { border-color: var(--accent); }
+.sidebar input::placeholder { color: #64748b; }
+.key-status { font-size: 11px; margin-top: 4px; min-height: 16px; }
+.key-status.ok { color: var(--green); }
+.key-status.err { color: var(--red); }
+
+.sidebar-spacer { flex: 1; }
+.btn {
+  display: block; width: 100%; padding: 10px; border: none; border-radius: var(--radius);
+  font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
+}
+.btn-primary { background: var(--accent); color: #fff; margin-bottom: 8px; }
+.btn-primary:hover { background: #2563eb; }
+.btn-ghost { background: transparent; color: var(--sidebar-text); border: 1px solid #475569; }
+.btn-ghost:hover { background: #334155; }
+
+.sidebar-footer { margin-top: 16px; font-size: 11px; color: #475569; text-align: center; line-height: 1.4; }
+.sidebar-footer a { color: #64748b; }
+
+/* Main area */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* Chat */
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 24px 32px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.msg { max-width: 780px; width: 100%; animation: fadeIn 0.15s ease; }
+.msg.user { align-self: flex-end; }
+.msg.assistant { align-self: flex-start; }
+.msg-bubble {
+  padding: 12px 16px; border-radius: 12px; font-size: 14px; line-height: 1.6;
+  word-wrap: break-word; overflow-wrap: break-word;
+}
+.msg.user .msg-bubble { background: var(--user-bg); color: #fff; border-bottom-right-radius: 4px; }
+.msg.assistant .msg-bubble { background: var(--assistant-bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.msg-label { font-size: 11px; color: var(--text-light); margin-bottom: 4px; font-weight: 600; }
+.msg.user .msg-label { text-align: right; }
+
+/* Streaming cursor */
+.cursor { display: inline-block; width: 2px; height: 14px; background: var(--accent); animation: blink 0.8s infinite; vertical-align: text-bottom; margin-left: 2px; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Chat input */
+.chat-input-area {
+  padding: 16px 32px 24px; border-top: 1px solid var(--border); background: var(--bg);
+}
+.chat-input-wrap {
+  display: flex; gap: 8px; max-width: 780px; margin: 0 auto;
+}
+.chat-input {
+  flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 14px; outline: none; resize: none; font-family: inherit; background: var(--card-bg);
+  min-height: 44px; max-height: 120px;
+}
+.chat-input:focus { border-color: var(--accent); }
+.send-btn {
+  padding: 0 20px; border: none; border-radius: var(--radius);
+  background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+.send-btn:hover { background: #2563eb; }
+.send-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+
+/* Welcome screen */
+.welcome {
+  flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px;
+}
+.welcome-card {
+  max-width: 560px; text-align: center;
+}
+.welcome-card h2 { font-size: 24px; margin-bottom: 8px; }
+.welcome-card p { color: var(--text-light); line-height: 1.6; margin-bottom: 16px; font-size: 14px; }
+.welcome-examples { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.welcome-example {
+  padding: 12px 16px; background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: 13px; color: var(--text); cursor: pointer;
+}
+.welcome-example:hover { border-color: var(--accent); background: #eff6ff; }
+
+/* Results dashboard */
+.results-dashboard {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+  padding: 24px; margin-top: 8px; max-width: 780px;
+}
+.results-dashboard h3 { font-size: 16px; margin-bottom: 16px; }
+
+/* Summary card */
+.summary-card {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px;
+}
+.scenario-card {
+  padding: 16px; border-radius: var(--radius); text-align: center;
+}
+.scenario-card.low { background: #fff7ed; border: 1px solid #fed7aa; }
+.scenario-card.base { background: #eff6ff; border: 1px solid #bfdbfe; }
+.scenario-card.high { background: #ecfdf5; border: 1px solid #a7f3d0; }
+.scenario-card .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.scenario-card.low .label { color: var(--orange); }
+.scenario-card.base .label { color: var(--blue); }
+.scenario-card.high .label { color: var(--green); }
+.scenario-card .value { font-size: 28px; font-weight: 800; }
+.scenario-card.low .value { color: #c2410c; }
+.scenario-card.base .value { color: #1d4ed8; }
+.scenario-card.high .value { color: #059669; }
+.scenario-card .threshold { font-size: 11px; margin-top: 4px; font-weight: 600; }
+.threshold-yes { color: var(--green); }
+.threshold-no { color: var(--red); }
+
+/* Tables */
+.results-section { margin-bottom: 24px; }
+.results-section h4 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+.results-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.results-table th, .results-table td {
+  padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
+}
+.results-table th {
+  background: #f8fafc; font-weight: 600; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.3px; color: var(--text-light);
+}
+.results-table .col-low { color: #c2410c; }
+.results-table .col-base { color: #1d4ed8; }
+.results-table .col-high { color: #059669; }
+
+/* Chart */
+.chart-container { max-height: 350px; margin-bottom: 24px; }
+
+/* Narrative */
+.narrative-section { margin-top: 16px; }
+.narrative-section h4 { margin-bottom: 8px; }
+.narrative-content {
+  font-size: 13px; line-height: 1.7; color: var(--text);
+  max-height: 400px; overflow-y: auto; padding-right: 8px;
+}
+.narrative-content h1, .narrative-content h2, .narrative-content h3 {
+  margin: 16px 0 8px; font-size: 15px;
+}
+.narrative-content p { margin-bottom: 10px; }
+.narrative-content ul, .narrative-content ol { margin: 8px 0 8px 24px; }
+.narrative-content li { margin-bottom: 4px; }
+
+/* Export */
+.export-bar { display: flex; gap: 8px; margin-top: 16px; }
+.export-btn {
+  padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card-bg); font-size: 12px; cursor: pointer; font-weight: 600;
+}
+.export-btn:hover { background: #f1f5f9; }
+
+/* Markdown in chat */
+.msg-bubble p { margin-bottom: 8px; }
+.msg-bubble p:last-child { margin-bottom: 0; }
+.msg-bubble ul, .msg-bubble ol { margin: 4px 0 8px 20px; }
+.msg-bubble li { margin-bottom: 2px; }
+.msg-bubble strong { font-weight: 700; }
+.msg-bubble code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.msg-bubble h3 { font-size: 14px; font-weight: 700; margin: 12px 0 4px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar { position: fixed; left: -280px; z-index: 10; height: 100%; transition: left 0.2s; }
+  .sidebar.open { left: 0; }
+  .chat-messages { padding: 16px; }
+  .chat-input-area { padding: 12px 16px; }
+  .summary-card { grid-template-columns: 1fr; }
+}
+</style>
 </head>
 <body>
-    <h1>Cost-Effectiveness Analysis Tool</h1>
-    <p>Coming soon — GiveWell-style CEA powered by Claude.</p>
+
+<div class="app">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>CEA Tool</h1>
+    <div class="subtitle">GiveWell-Style Cost-Effectiveness Analysis</div>
+
+    <label for="api-key">Anthropic API Key</label>
+    <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+    <div id="key-status" class="key-status"></div>
+
+    <div class="sidebar-spacer"></div>
+
+    <button class="btn btn-primary" id="new-analysis-btn">New Analysis</button>
+    <button class="btn btn-ghost" id="clear-key-btn">Clear API Key</button>
+
+    <div class="sidebar-footer">
+      Browser-only &middot; Your key stays in this tab<br>
+      Powered by Claude Sonnet 4.5
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div class="main">
+    <!-- Welcome screen (shown initially) -->
+    <div class="welcome" id="welcome-screen">
+      <div class="welcome-card">
+        <h2>GiveWell-Style CEA</h2>
+        <p>Describe an intervention and I'll run a rigorous cost-effectiveness analysis using GiveWell's methodology — with Low, Base, and High scenarios.</p>
+        <p style="font-size:12px; color:var(--text-light);">Enter your Anthropic API key in the sidebar to get started.</p>
+        <div class="welcome-examples">
+          <div class="welcome-example" data-prompt="I want to analyze vitamin A supplementation for children under 5 in Nigeria">Vitamin A supplementation for children under 5 in Nigeria</div>
+          <div class="welcome-example" data-prompt="Analyze the cost-effectiveness of distributing insecticide-treated bed nets in Mali">Insecticide-treated bed nets in Mali</div>
+          <div class="welcome-example" data-prompt="Evaluate an early childhood stimulation program based on the Jamaica Reach Up model, targeting children 6-36 months in Kenya">Early childhood stimulation (Jamaica model) in Kenya</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat (hidden initially) -->
+    <div class="chat-messages" id="chat-messages" style="display:none;"></div>
+    <div class="chat-input-area" id="chat-input-area" style="display:none;">
+      <div class="chat-input-wrap">
+        <textarea class="chat-input" id="chat-input" placeholder="Describe an intervention to analyze..." rows="1"></textarea>
+        <button class="send-btn" id="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ——————————————————————————————————————
+// State
+// ——————————————————————————————————————
+let conversationHistory = [];
+let isStreaming = false;
+let currentChart = null;
+
+// ——————————————————————————————————————
+// System prompt (embedded methodology)
+// ——————————————————————————————————————
+const SYSTEM_PROMPT = `You are a GiveWell-style cost-effectiveness analysis (CEA) assistant. You help users evaluate the cost-effectiveness of global development interventions using GiveWell's rigorous methodology.
+
+## YOUR TWO MODES
+
+### MODE 1: CONVERSATION (default)
+Ask scoping questions to understand the intervention before running analysis. Be conversational and helpful. Ask about:
+- Intervention type (mortality, morbidity, income/productivity, mixed)
+- Target geography and population
+- What evidence/data the user has
+- Cost data available
+- Any specific parameters they want to use
+
+Typically ask 2-4 focused questions. Don't overwhelm the user. If they provide enough detail upfront, you can skip some questions.
+
+### MODE 2: ANALYSIS
+When you have enough information OR the user says "run the analysis" / "go ahead" / "analyze", produce the full CEA. Return your analysis in TWO parts:
+
+**Part 1:** A brief conversational summary (2-3 sentences) introducing the results.
+
+**Part 2:** A structured JSON block wrapped in <cea-results> tags containing the full analysis data. This JSON will be parsed and rendered as an interactive dashboard.
+
+## CEA METHODOLOGY
+
+### Benchmark
+GiveWell uses unconditional cash transfers as the benchmark:
+- 1 unit of value = doubling consumption for 1 person for 1 year
+- ~15 units of value per $10,000 donated via cash transfers
+- **Threshold: ≥8x the cash transfer benchmark = meets GiveWell top charity bar**
+- Multiple of benchmark = (Value per $10,000) / 15
+
+### Moral Weights (GiveWell Defaults)
+| Outcome | Moral Weight |
+|---------|-------------|
+| Doubling consumption for 1 year | 1 |
+| Averting 1 DALY (YLD) | 2.3 |
+| Averting death of child under 5 | 134 |
+| Averting death of child 5-14 | 120 |
+| Averting death of adult 15-40 | 95 |
+| Averting death of adult 40-60 | 86 |
+| Averting death of adult 60+ | 60 |
+| Averting death of newborn | 84 |
+
+### Multi-Scenario Analysis (Low / Base / High)
+Every CEA has three scenarios:
+- **Low (Pessimistic):** Conservative estimates, high costs, heavy discounting
+- **Base (Best Guess):** Standard GiveWell methodology with balanced adjustments
+- **High (Optimistic):** Raw study effects, low costs, favorable assumptions
+
+For costs: Low scenario = HIGH cost (pessimistic), High scenario = LOW cost (optimistic).
+
+### Adjustment Factors
+Combined Effect = Base Effect × Internal Validity × External Validity × Counterfactual × Monitoring
+
+| Factor | What It Captures | Typical Range |
+|--------|-----------------|---------------|
+| Internal validity | Study correctly estimated causal effect? | 0.55-0.95 |
+| External validity | Effect generalizes to target context? | 0.50-0.95 |
+| Counterfactual | What happens without this funding? | 0.70-0.98 |
+| Monitoring quality | Confidence in reported coverage? | 0.75-0.98 |
+
+Evidence quality mapping:
+- Strong (meta-analysis of RCTs): IV 0.90-0.95, EV 0.85-0.95
+- Moderate (single large RCT): IV 0.75-0.90, EV 0.70-0.85
+- Weak (small/single study): IV 0.50-0.75, EV 0.50-0.70
+
+### INCOME/PRODUCTIVITY Interventions
+\`\`\`
+Adjusted Income Increase = Base Increase × Coverage × IV × EV × Counterfactual × Monitoring
+Log Consumption Gain = ln(1 + Adjusted Income Increase)
+Discounted Years = Σ [1 / (1 + discount_rate)^year] for benefit_duration
+Value per Person = Log Consumption Gain × Discounted Years
+Cost per Person = Cost per Unit × Units per Person
+Value per $10,000 = (10,000 / Cost per Person) × Value per Person
+Multiple of Benchmark = Value per $10,000 / 15
+\`\`\`
+
+### MORTALITY Interventions
+\`\`\`
+Deaths Averted per 1,000 = Baseline Mortality Rate × Effect Size (RR reduction) × Coverage × IV × EV × Counterfactual × Monitoring
+Cost per Death Averted = (Cost per Person × 1000) / Deaths Averted per 1,000
+Value per $10,000 = (10,000 / Cost per Death Averted) × Moral Weight
+Multiple of Benchmark = Value per $10,000 / 15
+\`\`\`
+
+### MORBIDITY/QoL Interventions
+\`\`\`
+DALYs Averted per Person = Disability Weight × Disability Reduction × Duration × Coverage × IV × EV × Counterfactual × Monitoring
+Value per Person = DALYs Averted × 2.3 (moral weight per DALY)
+Value per $10,000 = (10,000 / Cost per Person) × Value per Person
+Multiple of Benchmark = Value per $10,000 / 15
+\`\`\`
+
+### Sensitivity Analysis
+Compute sensitivity by varying each parameter individually from low to high while holding others at base, measuring the resulting change in the benchmark multiple. Report the top 5-8 most impactful parameters.
+
+## OUTPUT FORMAT
+
+When producing analysis results, return valid JSON inside <cea-results>...</cea-results> tags. The JSON must follow this exact schema:
+
+\`\`\`json
+{
+  "intervention": {
+    "name": "string",
+    "type": "mortality|morbidity|income|mixed",
+    "geography": "string",
+    "population": "string",
+    "condition": "string"
+  },
+  "parameters": {
+    "parameter_name": {
+      "low": number,
+      "base": number,
+      "high": number,
+      "unit": "string",
+      "source": "string"
+    }
+  },
+  "calculations": {
+    "step_name": {
+      "description": "string",
+      "low": number,
+      "base": number,
+      "high": number,
+      "unit": "string"
+    }
+  },
+  "results": {
+    "value_per_10000": { "low": number, "base": number, "high": number },
+    "multiple_of_benchmark": { "low": number, "base": number, "high": number },
+    "meets_threshold": { "low": boolean, "base": boolean, "high": boolean }
+  },
+  "sensitivity": [
+    {
+      "parameter": "string",
+      "low_value": "string",
+      "high_value": "string",
+      "impact_range": number
+    }
+  ],
+  "narrative": "Full markdown write-up (1000-2000 words) covering: intervention description, evidence base, cost analysis, results interpretation, key uncertainties, and recommendations."
+}
+\`\`\`
+
+IMPORTANT:
+- All numbers must be valid JSON numbers (not strings, not NaN, not Infinity)
+- Round to 2 decimal places for most values, 1 decimal for multiples
+- The narrative should be comprehensive markdown including ## headers
+- Sensitivity impact_range = absolute difference in multiple between low-param and high-param runs
+- Include 10-20 parameters covering effect size, baseline rates, costs, all adjustment factors, coverage, discount rate, and benefit duration
+- Include 6-10 calculation steps showing the full chain
+- Be rigorous: use real data from your training knowledge for baseline rates, effect sizes, and costs. Cite sources.`;
+
+// ——————————————————————————————————————
+// DOM refs
+// ——————————————————————————————————————
+const apiKeyInput = document.getElementById('api-key');
+const keyStatus = document.getElementById('key-status');
+const chatMessages = document.getElementById('chat-messages');
+const chatInputArea = document.getElementById('chat-input-area');
+const chatInput = document.getElementById('chat-input');
+const sendBtn = document.getElementById('send-btn');
+const welcomeScreen = document.getElementById('welcome-screen');
+const newAnalysisBtn = document.getElementById('new-analysis-btn');
+const clearKeyBtn = document.getElementById('clear-key-btn');
+
+// ——————————————————————————————————————
+// API Key management
+// ——————————————————————————————————————
+function getApiKey() { return sessionStorage.getItem('cea-api-key') || ''; }
+function setApiKey(key) {
+  sessionStorage.setItem('cea-api-key', key);
+  apiKeyInput.value = key;
+  if (key && key.startsWith('sk-ant-')) {
+    keyStatus.textContent = 'Key saved for this session';
+    keyStatus.className = 'key-status ok';
+  } else if (key) {
+    keyStatus.textContent = 'Key should start with sk-ant-...';
+    keyStatus.className = 'key-status err';
+  } else {
+    keyStatus.textContent = '';
+    keyStatus.className = 'key-status';
+  }
+}
+
+apiKeyInput.value = getApiKey();
+if (getApiKey()) setApiKey(getApiKey());
+
+apiKeyInput.addEventListener('change', () => setApiKey(apiKeyInput.value.trim()));
+apiKeyInput.addEventListener('blur', () => setApiKey(apiKeyInput.value.trim()));
+
+clearKeyBtn.addEventListener('click', () => {
+  sessionStorage.removeItem('cea-api-key');
+  apiKeyInput.value = '';
+  keyStatus.textContent = 'Key cleared';
+  keyStatus.className = 'key-status';
+});
+
+// ——————————————————————————————————————
+// Chat UI
+// ——————————————————————————————————————
+function showChat() {
+  welcomeScreen.style.display = 'none';
+  chatMessages.style.display = 'flex';
+  chatInputArea.style.display = 'block';
+  chatInput.focus();
+}
+
+function resetChat() {
+  conversationHistory = [];
+  chatMessages.innerHTML = '';
+  if (currentChart) { currentChart.destroy(); currentChart = null; }
+  welcomeScreen.style.display = 'flex';
+  chatMessages.style.display = 'none';
+  chatInputArea.style.display = 'none';
+}
+
+newAnalysisBtn.addEventListener('click', resetChat);
+
+// Welcome examples
+document.querySelectorAll('.welcome-example').forEach(el => {
+  el.addEventListener('click', () => {
+    const prompt = el.dataset.prompt;
+    if (!getApiKey()) {
+      keyStatus.textContent = 'Please enter your API key first';
+      keyStatus.className = 'key-status err';
+      apiKeyInput.focus();
+      return;
+    }
+    showChat();
+    sendMessage(prompt);
+  });
+});
+
+function addMessage(role, content) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = role === 'user' ? 'You' : 'Claude';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  if (role === 'user') {
+    bubble.textContent = content;
+  } else {
+    bubble.innerHTML = renderMarkdown(content);
+  }
+  div.appendChild(label);
+  div.appendChild(bubble);
+  chatMessages.appendChild(div);
+  scrollToBottom();
+  return bubble;
+}
+
+function createStreamingMessage() {
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = 'Claude';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.innerHTML = '<span class="cursor"></span>';
+  div.appendChild(label);
+  div.appendChild(bubble);
+  chatMessages.appendChild(div);
+  scrollToBottom();
+  return bubble;
+}
+
+function scrollToBottom() {
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// ——————————————————————————————————————
+// Simple markdown renderer
+// ——————————————————————————————————————
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^# (.+)$/gm, '<h3>$1</h3>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^\- (.+)$/gm, '<li>$1</li>')
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+  // Wrap paragraphs
+  html = html.split('\n\n').map(block => {
+    block = block.trim();
+    if (!block) return '';
+    if (block.startsWith('<h') || block.startsWith('<ul') || block.startsWith('<ol') || block.startsWith('<li')) return block;
+    return `<p>${block}</p>`;
+  }).join('\n');
+  html = html.replace(/\n/g, ' ').replace(/<\/li>\s*<li>/g, '</li><li>');
+  return html;
+}
+
+// ——————————————————————————————————————
+// Send message + stream response
+// ——————————————————————————————————————
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!isStreaming) triggerSend();
+  }
+});
+sendBtn.addEventListener('click', () => { if (!isStreaming) triggerSend(); });
+
+function triggerSend() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  if (!getApiKey()) {
+    keyStatus.textContent = 'Please enter your API key first';
+    keyStatus.className = 'key-status err';
+    apiKeyInput.focus();
+    return;
+  }
+  showChat();
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  sendMessage(text);
+}
+
+// Auto-resize textarea
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+});
+
+async function sendMessage(userText) {
+  addMessage('user', userText);
+  conversationHistory.push({ role: 'user', content: userText });
+
+  isStreaming = true;
+  sendBtn.disabled = true;
+  const bubble = createStreamingMessage();
+  let fullText = '';
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': getApiKey(),
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 16000,
+        system: SYSTEM_PROMPT,
+        messages: conversationHistory,
+        stream: true
+      })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      let errMsg = `API error ${response.status}`;
+      try { errMsg = JSON.parse(errBody).error?.message || errMsg; } catch {}
+      throw new Error(errMsg);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+
+        try {
+          const event = JSON.parse(data);
+          if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            fullText += event.delta.text;
+            // Update bubble with current text (without cea-results tags visible)
+            const displayText = fullText.replace(/<cea-results>[\s\S]*?<\/cea-results>/g, '').replace(/<cea-results>[\s\S]*/g, '');
+            bubble.innerHTML = renderMarkdown(displayText) + '<span class="cursor"></span>';
+            scrollToBottom();
+          }
+          if (event.type === 'message_stop') break;
+          if (event.type === 'error') throw new Error(event.error?.message || 'Stream error');
+        } catch (e) {
+          if (e.message !== 'Stream error' && !e.message.includes('JSON')) continue;
+          throw e;
+        }
+      }
+    }
+
+    // Remove cursor
+    const cursorEl = bubble.querySelector('.cursor');
+    if (cursorEl) cursorEl.remove();
+
+    // Check for CEA results
+    const ceaMatch = fullText.match(/<cea-results>([\s\S]*?)<\/cea-results>/);
+    if (ceaMatch) {
+      const displayText = fullText.replace(/<cea-results>[\s\S]*?<\/cea-results>/g, '').trim();
+      bubble.innerHTML = renderMarkdown(displayText);
+      try {
+        const results = JSON.parse(ceaMatch[1]);
+        renderDashboard(results, chatMessages);
+      } catch (e) {
+        console.error('Failed to parse CEA results:', e);
+        const errDiv = document.createElement('div');
+        errDiv.className = 'msg assistant';
+        errDiv.innerHTML = `<div class="msg-bubble" style="color:var(--red);">Failed to render results dashboard. The raw analysis is above.</div>`;
+        chatMessages.appendChild(errDiv);
+      }
+    }
+
+    conversationHistory.push({ role: 'assistant', content: fullText });
+
+  } catch (err) {
+    const cursorEl = bubble.querySelector('.cursor');
+    if (cursorEl) cursorEl.remove();
+    bubble.innerHTML = `<span style="color:var(--red);">Error: ${err.message}</span>`;
+    console.error(err);
+  } finally {
+    isStreaming = false;
+    sendBtn.disabled = false;
+    chatInput.focus();
+  }
+}
+
+// ——————————————————————————————————————
+// Results dashboard renderer
+// ——————————————————————————————————————
+function renderDashboard(data, container) {
+  const dash = document.createElement('div');
+  dash.className = 'results-dashboard';
+
+  // Title
+  const title = document.createElement('h3');
+  title.textContent = `CEA Results: ${data.intervention?.name || 'Analysis'}`;
+  dash.appendChild(title);
+
+  // Summary cards
+  const r = data.results || {};
+  const mult = r.multiple_of_benchmark || {};
+  const meets = r.meets_threshold || {};
+  dash.appendChild(createSummaryCards(mult, meets));
+
+  // Intervention info
+  if (data.intervention) {
+    const info = document.createElement('div');
+    info.className = 'results-section';
+    info.innerHTML = `<h4>Intervention</h4>
+      <table class="results-table">
+        <tr><td style="font-weight:600;width:140px;">Type</td><td>${esc(data.intervention.type || '')}</td></tr>
+        <tr><td style="font-weight:600;">Geography</td><td>${esc(data.intervention.geography || '')}</td></tr>
+        <tr><td style="font-weight:600;">Population</td><td>${esc(data.intervention.population || '')}</td></tr>
+        <tr><td style="font-weight:600;">Condition</td><td>${esc(data.intervention.condition || '')}</td></tr>
+      </table>`;
+    dash.appendChild(info);
+  }
+
+  // Parameters table
+  if (data.parameters) {
+    dash.appendChild(createParamsTable(data.parameters));
+  }
+
+  // Calculations table
+  if (data.calculations) {
+    dash.appendChild(createCalcTable(data.calculations));
+  }
+
+  // Sensitivity chart
+  if (data.sensitivity && data.sensitivity.length > 0) {
+    dash.appendChild(createSensitivityChart(data.sensitivity));
+  }
+
+  // Narrative
+  if (data.narrative) {
+    const narr = document.createElement('div');
+    narr.className = 'results-section narrative-section';
+    narr.innerHTML = `<h4>Detailed Analysis</h4><div class="narrative-content">${renderMarkdown(data.narrative)}</div>`;
+    dash.appendChild(narr);
+  }
+
+  // Export
+  const exportBar = document.createElement('div');
+  exportBar.className = 'export-bar';
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'export-btn';
+  copyBtn.textContent = 'Copy JSON to Clipboard';
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy JSON to Clipboard'; }, 2000);
+    });
+  });
+  exportBar.appendChild(copyBtn);
+  dash.appendChild(exportBar);
+
+  container.appendChild(dash);
+  scrollToBottom();
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (Math.abs(n) >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (Math.abs(n) >= 1000) return (n/1000).toFixed(1) + 'K';
+  if (Math.abs(n) < 0.01 && n !== 0) return n.toExponential(2);
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return parseFloat(n.toFixed(4)).toString();
+}
+
+function createSummaryCards(mult, meets) {
+  const wrap = document.createElement('div');
+  wrap.className = 'summary-card';
+  ['low','base','high'].forEach(scenario => {
+    const card = document.createElement('div');
+    card.className = `scenario-card ${scenario}`;
+    const labels = { low: 'Low (Pessimistic)', base: 'Base (Best Guess)', high: 'High (Optimistic)' };
+    const val = mult[scenario];
+    const meetsThreshold = meets[scenario];
+    card.innerHTML = `
+      <div class="label">${labels[scenario]}</div>
+      <div class="value">${val != null ? parseFloat(val).toFixed(1) + 'x' : '—'}</div>
+      <div class="threshold ${meetsThreshold ? 'threshold-yes' : 'threshold-no'}">${meetsThreshold ? 'Meets 8x threshold' : 'Below 8x threshold'}</div>
+    `;
+    wrap.appendChild(card);
+  });
+  return wrap;
+}
+
+function createParamsTable(params) {
+  const section = document.createElement('div');
+  section.className = 'results-section';
+  let html = `<h4>Parameters</h4><table class="results-table">
+    <thead><tr><th>Parameter</th><th class="col-low">Low</th><th class="col-base">Base</th><th class="col-high">High</th><th>Unit</th><th>Source</th></tr></thead><tbody>`;
+  for (const [key, p] of Object.entries(params)) {
+    const name = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    html += `<tr>
+      <td style="font-weight:500;">${esc(name)}</td>
+      <td class="col-low">${fmt(p.low)}</td>
+      <td class="col-base">${fmt(p.base)}</td>
+      <td class="col-high">${fmt(p.high)}</td>
+      <td>${esc(p.unit || '')}</td>
+      <td style="font-size:11px;color:var(--text-light);max-width:200px;">${esc(p.source || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  section.innerHTML = html;
+  return section;
+}
+
+function createCalcTable(calcs) {
+  const section = document.createElement('div');
+  section.className = 'results-section';
+  let html = `<h4>Calculations</h4><table class="results-table">
+    <thead><tr><th>Step</th><th class="col-low">Low</th><th class="col-base">Base</th><th class="col-high">High</th><th>Unit</th></tr></thead><tbody>`;
+  for (const [key, c] of Object.entries(calcs)) {
+    const name = c.description || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    const isFinal = key.toLowerCase().includes('multiple') || key.toLowerCase().includes('benchmark');
+    html += `<tr style="${isFinal ? 'font-weight:700;background:#f8fafc;' : ''}">
+      <td>${esc(name)}</td>
+      <td class="col-low">${fmt(c.low)}</td>
+      <td class="col-base">${fmt(c.base)}</td>
+      <td class="col-high">${fmt(c.high)}</td>
+      <td>${esc(c.unit || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  section.innerHTML = html;
+  return section;
+}
+
+function createSensitivityChart(sensitivity) {
+  const section = document.createElement('div');
+  section.className = 'results-section';
+  section.innerHTML = `<h4>Sensitivity Analysis</h4><div class="chart-container"><canvas id="sensitivity-chart-${Date.now()}"></canvas></div>`;
+
+  // Sort by impact
+  const sorted = [...sensitivity].sort((a, b) => (b.impact_range || 0) - (a.impact_range || 0)).slice(0, 10);
+
+  requestAnimationFrame(() => {
+    const canvas = section.querySelector('canvas');
+    if (!canvas) return;
+    if (currentChart) currentChart.destroy();
+    currentChart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: sorted.map(s => s.parameter),
+        datasets: [{
+          label: 'Impact on Multiple (range)',
+          data: sorted.map(s => s.impact_range || 0),
+          backgroundColor: sorted.map((_, i) => i === 0 ? '#3b82f6' : i < 3 ? '#60a5fa' : '#93c5fd'),
+          borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              afterLabel: (ctx) => {
+                const s = sorted[ctx.dataIndex];
+                return `Range: ${s.low_value} → ${s.high_value}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Impact on Multiple of Benchmark' }, grid: { color: '#f1f5f9' } },
+          y: { grid: { display: false } }
+        }
+      }
+    });
+  });
+
+  return section;
+}
+
+</script>
 </body>
 </html>
