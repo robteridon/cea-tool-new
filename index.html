@@ -109,6 +109,12 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .send-btn:hover { background: #2563eb; }
 .send-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+.reset-btn {
+  padding: 0 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card-bg); color: var(--text-light); font-size: 13px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+}
+.reset-btn:hover { background: #fee2e2; color: var(--red); border-color: #fca5a5; }
 
 /* Welcome screen */
 .welcome {
@@ -125,6 +131,16 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   border-radius: var(--radius); font-size: 13px; color: var(--text); cursor: pointer;
 }
 .welcome-example:hover { border-color: var(--accent); background: #eff6ff; }
+.welcome-input-wrap {
+  display: flex; gap: 8px; margin-top: 16px;
+}
+.welcome-input {
+  flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 14px; outline: none; resize: none; font-family: inherit; background: var(--card-bg);
+  min-height: 44px;
+}
+.welcome-input:focus { border-color: var(--accent); }
+.welcome-input-wrap .send-btn { padding: 0 24px; align-self: stretch; }
 
 /* Results dashboard */
 .results-dashboard {
@@ -247,6 +263,11 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
         <h2>GiveWell-Style CEA</h2>
         <p>Describe an intervention and I'll run a rigorous cost-effectiveness analysis using GiveWell's methodology — with Low, Base, and High scenarios.</p>
         <p style="font-size:12px; color:var(--text-light);">Enter your Anthropic API key in the sidebar to get started.</p>
+        <div class="welcome-input-wrap">
+          <textarea class="welcome-input" id="welcome-input" placeholder="Describe any intervention to analyze..." rows="2"></textarea>
+          <button class="send-btn" id="welcome-send-btn">Start Analysis</button>
+        </div>
+        <div style="font-size:12px; color:var(--text-light); margin: 12px 0 8px;">Or try an example:</div>
         <div class="welcome-examples">
           <div class="welcome-example" data-prompt="I want to analyze vitamin A supplementation for children under 5 in Nigeria">Vitamin A supplementation for children under 5 in Nigeria</div>
           <div class="welcome-example" data-prompt="Analyze the cost-effectiveness of distributing insecticide-treated bed nets in Mali">Insecticide-treated bed nets in Mali</div>
@@ -261,6 +282,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
       <div class="chat-input-wrap">
         <textarea class="chat-input" id="chat-input" placeholder="Describe an intervention to analyze..." rows="1"></textarea>
         <button class="send-btn" id="send-btn">Send</button>
+        <button class="reset-btn" id="reset-btn" title="Start over">Start Over</button>
       </div>
     </div>
   </div>
@@ -441,6 +463,9 @@ const sendBtn = document.getElementById('send-btn');
 const welcomeScreen = document.getElementById('welcome-screen');
 const newAnalysisBtn = document.getElementById('new-analysis-btn');
 const clearKeyBtn = document.getElementById('clear-key-btn');
+const resetBtn = document.getElementById('reset-btn');
+const welcomeInput = document.getElementById('welcome-input');
+const welcomeSendBtn = document.getElementById('welcome-send-btn');
 
 // ——————————————————————————————————————
 // API Key management
@@ -494,6 +519,26 @@ function resetChat() {
 }
 
 newAnalysisBtn.addEventListener('click', resetChat);
+resetBtn.addEventListener('click', resetChat);
+
+// Welcome input (free-form query)
+function submitWelcomeInput() {
+  const text = welcomeInput.value.trim();
+  if (!text) return;
+  if (!getApiKey()) {
+    keyStatus.textContent = 'Please enter your API key first';
+    keyStatus.className = 'key-status err';
+    apiKeyInput.focus();
+    return;
+  }
+  welcomeInput.value = '';
+  showChat();
+  sendMessage(text);
+}
+welcomeSendBtn.addEventListener('click', submitWelcomeInput);
+welcomeInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitWelcomeInput(); }
+});
 
 // Welcome examples
 document.querySelectorAll('.welcome-example').forEach(el => {
