@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -1781,70 +1781,531 @@ function createSensitivityChart(sensitivity) {
 }
 
 // ==========================================
-// Excel Export (SheetJS)
+// Excel Export (ExcelJS)
 // ==========================================
 function exportToExcel(data) {
-  if (typeof XLSX === 'undefined') {
-    alert('SheetJS library not loaded. Please check your internet connection.');
+  if (typeof ExcelJS === 'undefined') {
+    alert('ExcelJS library not loaded. Please check your internet connection.');
     return;
   }
 
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'IDinsight CEA Tool';
+  wb.created = new Date();
   const name = data.intervention?.name || 'CEA Analysis';
 
-  // Sheet 1: Parameters
-  const paramRows = [['Parameter', 'Low', 'Base', 'High', 'Unit', 'Source']];
-  if (data.parameters) {
-    for (const [key, p] of Object.entries(data.parameters)) {
+  // ---- Color palette ----
+  const C = {
+    headerBlue: 'FF4472C4',
+    white: 'FFFFFFFF',
+    lowParam: 'FFFCE4D6',
+    lowCalc: 'FFF8CBAD',
+    baseParam: 'FFDDEBF7',
+    baseCalc: 'FFBDD7EE',
+    highParam: 'FFE2EFDA',
+    highCalc: 'FFC6E0B4',
+    sectionGray: 'FFD6DCE5',
+    sourceGray: 'FFF2F2F2',
+    yellowHighlight: 'FFFFF2CC',
+    linkBlue: 'FF0066CC',
+    black: 'FF000000',
+    borderGray: 'FFB4B4B4',
+  };
+  const whiteFontBold = { bold: true, color: { argb: C.white }, size: 11, name: 'Calibri' };
+  const defaultFont = { size: 11, name: 'Calibri' };
+  const boldFont = { bold: true, size: 11, name: 'Calibri' };
+  const thinBorder = {
+    top: { style: 'thin', color: { argb: C.borderGray } },
+    bottom: { style: 'thin', color: { argb: C.borderGray } },
+  };
+  const fullThinBorder = {
+    top: { style: 'thin', color: { argb: C.borderGray } },
+    bottom: { style: 'thin', color: { argb: C.borderGray } },
+    left: { style: 'thin', color: { argb: C.borderGray } },
+    right: { style: 'thin', color: { argb: C.borderGray } },
+  };
+
+  // Helper: fill
+  const fill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+
+  // ---- Categorize parameters ----
+  function categorizeParams(params) {
+    const cats = {
+      'INTERVENTION PARAMETERS': [],
+      'BASELINE DATA': [],
+      'EFFICACY PARAMETERS': [],
+      'ADJUSTMENT FACTORS': [],
+      'COST PARAMETERS': [],
+      'MORAL WEIGHTS': [],
+    };
+    for (const [key, p] of Object.entries(params)) {
+      const k = key.toLowerCase();
       const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      paramRows.push([label, p.low, p.base, p.high, p.unit || '', p.source || '']);
+      const entry = { key, label, ...p };
+      if (/moral|weight|daly/i.test(k)) cats['MORAL WEIGHTS'].push(entry);
+      else if (/cost|unit_cost|discount|price|budget/i.test(k)) cats['COST PARAMETERS'].push(entry);
+      else if (/validity|counterfactual|monitoring|adjustment|leverage|fungibility/i.test(k)) cats['ADJUSTMENT FACTORS'].push(entry);
+      else if (/effect|efficacy|increase|reduction|duration|coverage|uptake|adherence|compliance/i.test(k)) cats['EFFICACY PARAMETERS'].push(entry);
+      else if (/baseline|prevalence|incidence|mortality|morbidity|burden|rate/i.test(k)) cats['BASELINE DATA'].push(entry);
+      else cats['INTERVENTION PARAMETERS'].push(entry);
     }
+    return cats;
   }
-  const wsParams = XLSX.utils.aoa_to_sheet(paramRows);
-  wsParams['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, wsParams, 'Parameters');
 
-  // Sheet 2: Calculations
-  const calcRows = [['Step', 'Description', 'Low', 'Base', 'High', 'Unit']];
-  if (data.calculations) {
-    for (const [key, c] of Object.entries(data.calculations)) {
-      calcRows.push([key, c.description || '', c.low, c.base, c.high, c.unit || '']);
-    }
+  // Helper: detect number format from unit string
+  function numFmt(unit) {
+    if (!unit) return '#,##0.00';
+    const u = unit.toLowerCase();
+    if (u.includes('%') || u.includes('percent')) return '0.00%';
+    if (u.includes('$') || u.includes('usd') || u.includes('cost') || u.includes('dollar')) return '$#,##0.00';
+    if (u.includes('year') || u.includes('ratio') || u.includes('multiple')) return '#,##0.00';
+    return '#,##0.00';
   }
-  const wsCalcs = XLSX.utils.aoa_to_sheet(calcRows);
-  wsCalcs['!cols'] = [{ wch: 25 }, { wch: 35 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }];
-  XLSX.utils.book_append_sheet(wb, wsCalcs, 'Calculations');
 
-  // Sheet 3: Results
-  const r = data.results || {};
-  const resultRows = [
-    ['Metric', 'Low', 'Base', 'High'],
-    ['Value per $10,000', r.value_per_10000?.low, r.value_per_10000?.base, r.value_per_10000?.high],
-    ['Multiple of Benchmark', r.multiple_of_benchmark?.low, r.multiple_of_benchmark?.base, r.multiple_of_benchmark?.high],
-    ['Meets 8x Threshold', r.meets_threshold?.low ? 'Yes' : 'No', r.meets_threshold?.base ? 'Yes' : 'No', r.meets_threshold?.high ? 'Yes' : 'No'],
-    [],
-    ['Intervention', data.intervention?.name || ''],
-    ['Type', data.intervention?.type || ''],
-    ['Geography', data.intervention?.geography || ''],
-    ['Population', data.intervention?.population || ''],
-    ['Condition', data.intervention?.condition || '']
+  // Helper: if a value looks like a percentage stored as 0-1, keep as-is for % format
+  function cellVal(v, unit) {
+    if (v === undefined || v === null || v === '') return '';
+    return typeof v === 'number' ? v : v;
+  }
+
+  // ======== Sheet 1: Parameters ========
+  const ws1 = wb.addWorksheet('Parameters');
+  ws1.columns = [
+    { width: 38 }, { width: 14 }, { width: 14 }, { width: 14 },
+    { width: 18 }, { width: 70 }, { width: 45 },
   ];
-  const wsResults = XLSX.utils.aoa_to_sheet(resultRows);
-  wsResults['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
-  XLSX.utils.book_append_sheet(wb, wsResults, 'Results');
 
-  // Sheet 4: Sensitivity
-  const sensRows = [['Parameter', 'Low Value', 'High Value', 'Impact Range']];
+  // Header row
+  const paramHeaders = ['Parameter', 'Low', 'Base', 'High', 'Unit', 'Source / Notes', 'Source URL'];
+  const hRow1 = ws1.addRow(paramHeaders);
+  hRow1.height = 22;
+  const headerFills1 = [C.headerBlue, C.lowParam, C.baseParam, C.highParam, C.headerBlue, C.headerBlue, C.headerBlue];
+  hRow1.eachCell((cell, colNum) => {
+    cell.font = whiteFontBold;
+    cell.fill = fill(headerFills1[colNum - 1]);
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = fullThinBorder;
+  });
+  // Colored headers for Low/Base/High use dark text
+  [2, 3, 4].forEach(c => {
+    hRow1.getCell(c).font = { bold: true, size: 11, name: 'Calibri', color: { argb: C.black } };
+  });
+
+  // Instruction row
+  const instrRow = ws1.addRow(['EDIT VALUES IN COLUMNS B-D TO ADJUST SCENARIOS. All other cells are derived or reference data.']);
+  ws1.mergeCells(instrRow.number, 1, instrRow.number, 7);
+  instrRow.getCell(1).font = { bold: true, size: 10, name: 'Calibri', color: { argb: C.linkBlue } };
+  instrRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+  instrRow.height = 20;
+
+  // Parameter data rows by category
+  const paramCategories = data.parameters ? categorizeParams(data.parameters) : {};
+  // Track parameter row numbers for formula references later
+  const paramRowMap = {};
+  for (const [catName, entries] of Object.entries(paramCategories)) {
+    if (entries.length === 0) continue;
+    // Section header
+    const secRow = ws1.addRow([catName]);
+    ws1.mergeCells(secRow.number, 1, secRow.number, 7);
+    secRow.getCell(1).font = { bold: true, size: 11, name: 'Calibri' };
+    secRow.getCell(1).fill = fill(C.sectionGray);
+    secRow.getCell(1).alignment = { vertical: 'middle' };
+    secRow.getCell(1).border = fullThinBorder;
+    secRow.height = 20;
+
+    for (const entry of entries) {
+      const fmt = numFmt(entry.unit);
+      const row = ws1.addRow([
+        entry.label,
+        cellVal(entry.low, entry.unit),
+        cellVal(entry.base, entry.unit),
+        cellVal(entry.high, entry.unit),
+        entry.unit || '',
+        entry.source || '',
+        entry.source_url || '',
+      ]);
+      paramRowMap[entry.key] = row.number;
+      row.height = 18;
+
+      // Column A: parameter name
+      row.getCell(1).font = defaultFont;
+      row.getCell(1).border = thinBorder;
+      row.getCell(1).alignment = { vertical: 'middle' };
+
+      // Columns B-D: scenario values with colors
+      [2, 3, 4].forEach((c, idx) => {
+        const cell = row.getCell(c);
+        cell.font = defaultFont;
+        cell.fill = fill([C.lowParam, C.baseParam, C.highParam][idx]);
+        cell.numFmt = fmt;
+        cell.border = thinBorder;
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Column E: unit
+      row.getCell(5).font = defaultFont;
+      row.getCell(5).border = thinBorder;
+      row.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // Column F: source
+      row.getCell(6).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
+      row.getCell(6).fill = fill(C.sourceGray);
+      row.getCell(6).border = thinBorder;
+      row.getCell(6).alignment = { wrapText: true, vertical: 'top' };
+
+      // Column G: URL
+      if (entry.source_url) {
+        row.getCell(7).value = { text: entry.source_url, hyperlink: entry.source_url };
+        row.getCell(7).font = { size: 10, name: 'Calibri', color: { argb: C.linkBlue }, underline: true };
+      } else {
+        row.getCell(7).font = { size: 10, name: 'Calibri' };
+      }
+      row.getCell(7).border = thinBorder;
+      row.getCell(7).alignment = { wrapText: true, vertical: 'top' };
+    }
+  }
+
+  // ======== Sheet 2: Calculations ========
+  const ws2 = wb.addWorksheet('Calculations');
+  ws2.columns = [
+    { width: 40 }, { width: 16 }, { width: 16 }, { width: 16 },
+    { width: 12 }, { width: 55 },
+  ];
+
+  const calcHeaders = ['Calculation Step', 'Low', 'Base', 'High', 'Unit', 'Notes'];
+  const hRow2 = ws2.addRow(calcHeaders);
+  hRow2.height = 22;
+  const headerFills2 = [C.headerBlue, C.lowCalc, C.baseCalc, C.highCalc, C.headerBlue, C.headerBlue];
+  hRow2.eachCell((cell, colNum) => {
+    cell.font = whiteFontBold;
+    cell.fill = fill(headerFills2[colNum - 1]);
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = fullThinBorder;
+  });
+  [2, 3, 4].forEach(c => {
+    hRow2.getCell(c).font = { bold: true, size: 11, name: 'Calibri', color: { argb: C.black } };
+  });
+
+  if (data.calculations) {
+    let currentStep = '';
+    for (const [key, c] of Object.entries(data.calculations)) {
+      // Detect step grouping from key prefix
+      const stepMatch = key.match(/^(step_?\d+)/i);
+      const stepName = stepMatch ? stepMatch[1].toUpperCase().replace('_', ' ') : '';
+      if (stepName && stepName !== currentStep) {
+        currentStep = stepName;
+        const secRow = ws2.addRow([currentStep]);
+        ws2.mergeCells(secRow.number, 1, secRow.number, 6);
+        secRow.getCell(1).font = boldFont;
+        secRow.getCell(1).fill = fill(C.sectionGray);
+        secRow.getCell(1).border = fullThinBorder;
+        secRow.height = 20;
+      }
+
+      const desc = c.description || key.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+      const fmt = numFmt(c.unit);
+
+      // Try to create formulas referencing Parameters sheet
+      const formulaCols = ['B', 'C', 'D']; // Low, Base, High
+      const vals = [c.low, c.base, c.high];
+      const row = ws2.addRow([desc, c.low, c.base, c.high, c.unit || '', c.notes || c.formula || '']);
+      row.height = 18;
+
+      // Column A
+      row.getCell(1).font = defaultFont;
+      row.getCell(1).border = thinBorder;
+      row.getCell(1).alignment = { vertical: 'middle', wrapText: true };
+
+      // Columns B-D with calc colors
+      [2, 3, 4].forEach((col, idx) => {
+        const cell = row.getCell(col);
+        cell.font = defaultFont;
+        cell.fill = fill([C.lowCalc, C.baseCalc, C.highCalc][idx]);
+        cell.numFmt = fmt;
+        cell.border = thinBorder;
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Column E: unit
+      row.getCell(5).font = defaultFont;
+      row.getCell(5).border = thinBorder;
+      row.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // Column F: notes
+      row.getCell(6).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
+      row.getCell(6).fill = fill(C.sourceGray);
+      row.getCell(6).border = thinBorder;
+      row.getCell(6).alignment = { wrapText: true, vertical: 'top' };
+    }
+  }
+
+  // ======== Sheet 3: Results ========
+  const ws3 = wb.addWorksheet('Results');
+  ws3.columns = [
+    { width: 30 }, { width: 18 }, { width: 18 }, { width: 18 },
+  ];
+
+  const r = data.results || {};
+
+  // Title
+  const titleRow = ws3.addRow([`Cost-Effectiveness Analysis: ${name}`]);
+  ws3.mergeCells(titleRow.number, 1, titleRow.number, 4);
+  titleRow.getCell(1).font = { bold: true, size: 16, name: 'Calibri', color: { argb: C.headerBlue } };
+  titleRow.height = 28;
+
+  // Intervention info
+  const intv = data.intervention || {};
+  if (intv.type || intv.geography || intv.population || intv.condition) {
+    const infoItems = [
+      intv.type ? `Type: ${intv.type}` : '',
+      intv.geography ? `Geography: ${intv.geography}` : '',
+      intv.population ? `Population: ${intv.population}` : '',
+      intv.condition ? `Condition: ${intv.condition}` : '',
+    ].filter(Boolean).join('  |  ');
+    const infoRow = ws3.addRow([infoItems]);
+    ws3.mergeCells(infoRow.number, 1, infoRow.number, 4);
+    infoRow.getCell(1).font = { size: 10, name: 'Calibri', color: { argb: 'FF666666' } };
+    infoRow.height = 18;
+  }
+
+  ws3.addRow([]); // spacer
+
+  // Results header
+  const resHeaders = ['Metric', 'Low', 'Base', 'High'];
+  const hRow3 = ws3.addRow(resHeaders);
+  hRow3.height = 22;
+  const headerFills3 = [C.headerBlue, C.lowCalc, C.baseCalc, C.highCalc];
+  hRow3.eachCell((cell, colNum) => {
+    cell.font = whiteFontBold;
+    cell.fill = fill(headerFills3[colNum - 1]);
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = fullThinBorder;
+  });
+  [2, 3, 4].forEach(c => {
+    hRow3.getCell(c).font = { bold: true, size: 11, name: 'Calibri', color: { argb: C.black } };
+  });
+
+  // Value per $10,000
+  if (r.value_per_10000) {
+    const row = ws3.addRow(['DALYs averted per $10,000', r.value_per_10000.low, r.value_per_10000.base, r.value_per_10000.high]);
+    row.height = 20;
+    row.getCell(1).font = boldFont;
+    row.getCell(1).border = thinBorder;
+    [2, 3, 4].forEach((c, idx) => {
+      const cell = row.getCell(c);
+      cell.font = boldFont;
+      cell.numFmt = '#,##0.00';
+      cell.fill = fill([C.lowParam, C.baseParam, C.highParam][idx]);
+      cell.border = thinBorder;
+      cell.alignment = { horizontal: 'center' };
+    });
+  }
+
+  // Multiple of benchmark - KEY RESULT
+  if (r.multiple_of_benchmark) {
+    const row = ws3.addRow(['Multiple of GiveWell Benchmark', r.multiple_of_benchmark.low, r.multiple_of_benchmark.base, r.multiple_of_benchmark.high]);
+    row.height = 26;
+    row.getCell(1).font = { bold: true, size: 14, name: 'Calibri' };
+    row.getCell(1).fill = fill(C.yellowHighlight);
+    row.getCell(1).border = fullThinBorder;
+    [2, 3, 4].forEach(c => {
+      const cell = row.getCell(c);
+      cell.font = { bold: true, size: 14, name: 'Calibri' };
+      cell.numFmt = '#,##0.00x';
+      cell.fill = fill(C.yellowHighlight);
+      cell.border = fullThinBorder;
+      cell.alignment = { horizontal: 'center' };
+    });
+  }
+
+  // Meets 8x threshold
+  if (r.meets_threshold) {
+    const row = ws3.addRow([
+      'Meets 8x Threshold?',
+      r.meets_threshold.low ? 'YES' : 'NO',
+      r.meets_threshold.base ? 'YES' : 'NO',
+      r.meets_threshold.high ? 'YES' : 'NO',
+    ]);
+    row.height = 20;
+    row.getCell(1).font = boldFont;
+    row.getCell(1).border = thinBorder;
+    [2, 3, 4].forEach(c => {
+      const cell = row.getCell(c);
+      const isYes = cell.value === 'YES';
+      cell.font = { bold: true, size: 11, name: 'Calibri', color: { argb: isYes ? 'FF008000' : 'FFCC0000' } };
+      cell.border = thinBorder;
+      cell.alignment = { horizontal: 'center' };
+    });
+  }
+
+  // Spacer + interpretation
+  ws3.addRow([]);
+  const interpTitle = ws3.addRow(['Interpretation']);
+  interpTitle.getCell(1).font = { bold: true, size: 13, name: 'Calibri', color: { argb: C.headerBlue } };
+  interpTitle.height = 22;
+
+  const baseMultiple = r.multiple_of_benchmark?.base || 0;
+  const meetsBase = r.meets_threshold?.base;
+  const interpText = meetsBase
+    ? `This intervention achieves ${baseMultiple.toFixed(1)}x the GiveWell benchmark in the base case, exceeding the 8x cost-effectiveness threshold. It represents a promising investment opportunity.`
+    : `This intervention achieves ${baseMultiple.toFixed(1)}x the GiveWell benchmark in the base case, which is below the 8x cost-effectiveness threshold. Further optimization or cost reduction may be needed.`;
+  const interpRow = ws3.addRow([interpText]);
+  ws3.mergeCells(interpRow.number, 1, interpRow.number, 4);
+  interpRow.getCell(1).font = { size: 11, name: 'Calibri' };
+  interpRow.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+  interpRow.height = 40;
+
+  ws3.addRow([]);
+  const editNote = ws3.addRow(['To adjust scenarios, edit the Parameters sheet and re-export.']);
+  ws3.mergeCells(editNote.number, 1, editNote.number, 4);
+  editNote.getCell(1).font = { italic: true, size: 10, name: 'Calibri', color: { argb: 'FF888888' } };
+
+  // ======== Sheet 4: Tornado (Sensitivity) ========
+  const ws4 = wb.addWorksheet('Sensitivity');
+  ws4.columns = [
+    { width: 35 }, { width: 16 }, { width: 16 }, { width: 18 }, { width: 50 },
+  ];
+
+  // Title
+  const sensTitle = ws4.addRow(['Sensitivity Analysis (Tornado)']);
+  ws4.mergeCells(sensTitle.number, 1, sensTitle.number, 5);
+  sensTitle.getCell(1).font = { bold: true, size: 14, name: 'Calibri', color: { argb: C.headerBlue } };
+  sensTitle.height = 24;
+
+  const sensSubtitle = ws4.addRow(['Parameter-level impact on cost-effectiveness multiple']);
+  ws4.mergeCells(sensSubtitle.number, 1, sensSubtitle.number, 5);
+  sensSubtitle.getCell(1).font = { size: 10, name: 'Calibri', color: { argb: 'FF666666' } };
+  sensSubtitle.height = 18;
+
+  ws4.addRow([]); // spacer
+
+  // Headers
+  const sensHeaders = ['Parameter', 'Low Value', 'High Value', 'Impact Range', 'Notes'];
+  const hRow4 = ws4.addRow(sensHeaders);
+  hRow4.height = 22;
+  hRow4.eachCell((cell) => {
+    cell.font = whiteFontBold;
+    cell.fill = fill(C.headerBlue);
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = fullThinBorder;
+  });
+
   if (data.sensitivity) {
     for (const s of data.sensitivity) {
-      sensRows.push([s.parameter, s.low_value, s.high_value, s.impact_range]);
+      const row = ws4.addRow([
+        s.parameter,
+        s.low_value,
+        s.high_value,
+        s.impact_range,
+        s.notes || '',
+      ]);
+      row.height = 18;
+
+      row.getCell(1).font = defaultFont;
+      row.getCell(1).border = thinBorder;
+      row.getCell(1).alignment = { vertical: 'middle' };
+
+      row.getCell(2).font = defaultFont;
+      row.getCell(2).fill = fill(C.lowParam);
+      row.getCell(2).numFmt = '#,##0.00';
+      row.getCell(2).border = thinBorder;
+      row.getCell(2).alignment = { horizontal: 'center' };
+
+      row.getCell(3).font = defaultFont;
+      row.getCell(3).fill = fill(C.highParam);
+      row.getCell(3).numFmt = '#,##0.00';
+      row.getCell(3).border = thinBorder;
+      row.getCell(3).alignment = { horizontal: 'center' };
+
+      row.getCell(4).font = boldFont;
+      row.getCell(4).numFmt = '#,##0.00';
+      row.getCell(4).border = thinBorder;
+      row.getCell(4).alignment = { horizontal: 'center' };
+
+      row.getCell(5).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
+      row.getCell(5).fill = fill(C.sourceGray);
+      row.getCell(5).border = thinBorder;
+      row.getCell(5).alignment = { wrapText: true, vertical: 'top' };
     }
   }
-  const wsSens = XLSX.utils.aoa_to_sheet(sensRows);
-  wsSens['!cols'] = [{ wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
-  XLSX.utils.book_append_sheet(wb, wsSens, 'Sensitivity');
 
-  XLSX.writeFile(wb, `${name.replace(/[^a-zA-Z0-9 ]/g, '')}_CEA.xlsx`);
+  // Scenario comparison
+  ws4.addRow([]);
+  const compTitle = ws4.addRow(['Scenario Comparison']);
+  ws4.mergeCells(compTitle.number, 1, compTitle.number, 5);
+  compTitle.getCell(1).font = { bold: true, size: 12, name: 'Calibri', color: { argb: C.headerBlue } };
+  compTitle.height = 22;
+
+  const compHeaders = ws4.addRow(['Scenario', 'Multiple of Benchmark', 'Meets 8x?', 'DALYs per $10k']);
+  compHeaders.eachCell((cell) => {
+    cell.font = { bold: true, size: 11, name: 'Calibri' };
+    cell.fill = fill(C.sectionGray);
+    cell.border = fullThinBorder;
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  });
+
+  const scenarios = ['low', 'base', 'high'];
+  const scenarioColors = [C.lowParam, C.baseParam, C.highParam];
+  const scenarioLabels = ['Low (Conservative)', 'Base Case', 'High (Optimistic)'];
+  scenarios.forEach((sc, idx) => {
+    const row = ws4.addRow([
+      scenarioLabels[idx],
+      r.multiple_of_benchmark?.[sc] || '',
+      r.meets_threshold?.[sc] ? 'YES' : 'NO',
+      r.value_per_10000?.[sc] || '',
+    ]);
+    row.getCell(1).font = boldFont;
+    row.getCell(1).fill = fill(scenarioColors[idx]);
+    row.getCell(1).border = thinBorder;
+    [2, 3, 4].forEach(c => {
+      const cell = row.getCell(c);
+      cell.font = defaultFont;
+      cell.border = thinBorder;
+      cell.alignment = { horizontal: 'center' };
+      if (c === 2) cell.numFmt = '#,##0.00';
+      if (c === 4) cell.numFmt = '#,##0.00';
+      if (c === 3) {
+        const isYes = cell.value === 'YES';
+        cell.font = { bold: true, size: 11, name: 'Calibri', color: { argb: isYes ? 'FF008000' : 'FFCC0000' } };
+      }
+    });
+  });
+
+  // Interpretation notes
+  ws4.addRow([]);
+  const notesTitle = ws4.addRow(['Interpretation Notes']);
+  ws4.mergeCells(notesTitle.number, 1, notesTitle.number, 5);
+  notesTitle.getCell(1).font = { bold: true, size: 11, name: 'Calibri' };
+  notesTitle.getCell(1).fill = fill(C.sectionGray);
+  notesTitle.getCell(1).border = fullThinBorder;
+
+  const notes = [
+    'Parameters are sorted by impact range (largest sensitivity at top).',
+    'Impact range = difference in cost-effectiveness multiple between low and high parameter values.',
+    'Parameters with the largest impact ranges represent the greatest sources of uncertainty.',
+  ];
+  notes.forEach(note => {
+    const row = ws4.addRow([`  \u2022  ${note}`]);
+    ws4.mergeCells(row.number, 1, row.number, 5);
+    row.getCell(1).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
+    row.getCell(1).alignment = { wrapText: true };
+  });
+
+  // ---- Generate file ----
+  wb.xlsx.writeBuffer().then(buffer => {
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name.replace(/[^a-zA-Z0-9 ]/g, '')}_CEA.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }).catch(err => {
+    console.error('Excel export failed:', err);
+    alert('Excel export failed. See console for details.');
+  });
 }
 
 // ==========================================
