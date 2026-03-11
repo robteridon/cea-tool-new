@@ -1,4 +1,4 @@
-# GiveWell-Style Cost-Effectiveness Analysis Tool
+# Cost-Effectiveness Analysis Tool
 
 A web-based tool for conducting rigorous cost-effectiveness analyses (CEAs) following GiveWell's methodology. Built by IDinsight, it uses a multi-agent AI pipeline to evaluate development interventions and produce quantitative results with policy-relevant narratives.
 
