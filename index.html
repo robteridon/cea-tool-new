@@ -379,7 +379,7 @@ html, body { height: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFo
   <!-- Sidebar -->
   <div class="sidebar">
     <h1>IDinsight | <span style="color:#d4a843;">CEA Tool</span></h1>
-    <div class="subtitle">GiveWell-Style Cost-Effectiveness Analysis</div>
+    <div class="subtitle">Cost-Effectiveness Analysis</div>
 
     <label for="api-key">Anthropic API Key</label>
     <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
@@ -438,7 +438,7 @@ html, body { height: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFo
     <div class="welcome" id="welcome-screen">
       <div class="welcome-card">
         <h2>IDinsight | <span style="color:#d4a843;">CEA Tool</span></h2>
-        <p>Describe an intervention and I'll run a rigorous cost-effectiveness analysis using GiveWell's methodology — with Low, Base, and High scenarios.</p>
+        <p>Describe an intervention and I'll run a rigorous cost-effectiveness analysis — with Low, Base, and High scenarios.</p>
         <p style="font-size:12px; color:var(--text-light);">Enter your Anthropic API key in the sidebar to get started.</p>
         <div class="welcome-input-wrap">
           <textarea class="welcome-input" id="welcome-input" placeholder="Describe any intervention to analyze..." rows="2"></textarea>
@@ -495,7 +495,7 @@ function getSubAgentModel() {
 // ==========================================
 // System Prompts
 // ==========================================
-const CONVERSATION_SYSTEM_PROMPT = `You are a GiveWell-style cost-effectiveness analysis (CEA) assistant. You help users scope interventions for rigorous CEA using GiveWell's methodology.
+const CONVERSATION_SYSTEM_PROMPT = `You are a cost-effectiveness analysis (CEA) assistant. You help users scope interventions for rigorous CEA.
 
 ## YOUR ROLE: SCOPING CONVERSATION
 
@@ -543,6 +543,13 @@ IMPORTANT: Only output <cea-scope> when you're confident you have enough informa
 
 const RESEARCH_AGENT_PROMPT = `You are a research agent tasked with finding academic literature and data to inform a cost-effectiveness analysis. Your goal is to return structured, CEA-ready findings.
 
+IMPORTANT: You have access to web search. USE IT to find real, current data — do not rely solely on your training data. Search for:
+- Systematic reviews, meta-analyses, and RCTs on the intervention
+- Baseline rates from GBD/IHME, WHO, DHS for the target geography
+- Cost data from DCP3, WHO-CHOICE, program evaluations
+- Prior CEAs from Copenhagen Consensus, J-PAL, 3ie, and other sources
+Perform multiple targeted searches to gather the best available evidence. Always prefer data found via search over recalled knowledge.
+
 ## Parameters to Find
 
 ### 1. Effect Size (REQUIRED)
@@ -560,7 +567,7 @@ Find cost per beneficiary. Sources: DCP3, WHO-CHOICE, program evaluations, NGO r
 Report low/base/high range with what's included.
 
 ### 4. Prior Analyses (IF AVAILABLE)
-Check GiveWell, Copenhagen Consensus, J-PAL, 3ie for prior analyses.
+Check Copenhagen Consensus, J-PAL, 3ie, and other sources for prior analyses.
 
 ### 5. Evidence Quality Assessment (REQUIRED)
 Assess internal validity (Strong/Moderate/Weak) and external validity.
@@ -641,7 +648,7 @@ Return evaluation as JSON:
 
 Default to moderate skepticism. "Strong" ratings need compelling justification.`;
 
-const COUNTERFACTUAL_PROMPT = `You are a counterfactual assessment agent for a GiveWell-style cost-effectiveness analysis. Determine what would happen if this intervention were NOT funded.
+const COUNTERFACTUAL_PROMPT = `You are a counterfactual assessment agent for a cost-effectiveness analysis. Determine what would happen if this intervention were NOT funded.
 
 ## Research Tasks
 
@@ -669,15 +676,15 @@ Return as JSON:
   "cea_notes": { "for_parameters_sheet": "1-2 sentence note", "for_writeup": "2-3 paragraph summary" }
 }`;
 
-const CEA_CALCULATOR_PROMPT = `You are a CEA calculation engine. Given research findings, paper evaluations, and counterfactual assessment, produce a rigorous GiveWell-style cost-effectiveness analysis.
+const CEA_CALCULATOR_PROMPT = `You are a CEA calculation engine. Given research findings, paper evaluations, and counterfactual assessment, produce a rigorous cost-effectiveness analysis.
 
 ## CEA METHODOLOGY
 
 ### Benchmark
-GiveWell uses unconditional cash transfers as benchmark:
+Unconditional cash transfers serve as the benchmark:
 - 1 unit of value = doubling consumption for 1 person for 1 year
 - ~15 units of value per $10,000 donated via cash transfers
-- Threshold: >=8x cash transfer benchmark = meets GiveWell top charity bar
+- Threshold: >=8x cash transfer benchmark = meets top charity bar
 - Multiple of benchmark = (Value per $10,000) / 15
 
 ### Moral Weights (GiveWell Defaults)
@@ -743,7 +750,7 @@ IMPORTANT:
 - Include 6-10 calculation steps showing the full chain
 - Be rigorous: use the research data provided. Cite sources.`;
 
-const REPORT_AGENT_PROMPT = `You are a report generation agent producing a comprehensive GiveWell-style CEA write-up.
+const REPORT_AGENT_PROMPT = `You are a report generation agent producing a comprehensive CEA write-up.
 
 ## Target Output
 - Length: 2,000-4,000 words
@@ -1207,22 +1214,27 @@ function updateStage(num, status) {
 // ==========================================
 // Streaming API call for sub-agents
 // ==========================================
-async function callAgent(systemPrompt, messages, model, thinkingLabel) {
+async function callAgent(systemPrompt, messages, model, thinkingLabel, tools) {
+  const body = {
+    model: model,
+    max_tokens: 16000,
+    system: systemPrompt,
+    messages: messages,
+    stream: true
+  };
+  if (tools && tools.length > 0) {
+    body.tools = tools;
+  }
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': getApiKey(),
-      'anthropic-version': '2023-06-01',
+      'anthropic-version': '2025-01-24',
       'anthropic-dangerous-direct-browser-access': 'true'
     },
-    body: JSON.stringify({
-      model: model,
-      max_tokens: 16000,
-      system: systemPrompt,
-      messages: messages,
-      stream: true
-    })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {
@@ -1236,6 +1248,7 @@ async function callAgent(systemPrompt, messages, model, thinkingLabel) {
   const decoder = new TextDecoder();
   let buffer = '';
   let fullText = '';
+  let searchCount = 0;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -1252,12 +1265,16 @@ async function callAgent(systemPrompt, messages, model, thinkingLabel) {
 
       try {
         const event = JSON.parse(data);
+        if (event.type === 'content_block_start' && event.content_block?.type === 'server_tool_use' && event.content_block?.name === 'web_search') {
+          searchCount++;
+          if (thinkingLabel) updateThinking(`${thinkingLabel} (web search #${searchCount})`, '');
+        }
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
           fullText += event.delta.text;
           if (thinkingLabel) {
-            // Show truncated tail of output in thinking panel
+            const label = searchCount > 0 ? `${thinkingLabel} (${searchCount} searches done)` : thinkingLabel;
             const display = fullText.length > 2000 ? '...' + fullText.slice(-2000) : fullText;
-            updateThinking(thinkingLabel, display);
+            updateThinking(label, display);
           }
         }
         if (event.type === 'message_stop') break;
@@ -1282,9 +1299,10 @@ async function runPipeline(scope) {
   try {
     // Stage 1: Research
     updateStage(1, 'active');
-    const researchPrompt = `Research the following intervention for a GiveWell-style CEA:\n\nIntervention: ${scope.intervention_name}\nDescription: ${scope.description}\nType: ${scope.intervention_type}\nGeography: ${scope.geography}\nPopulation: ${scope.population}\nCondition: ${scope.condition || 'N/A'}\n${scope.user_provided_data ? `\nUser-provided data:\n${JSON.stringify(scope.user_provided_data, null, 2)}` : ''}\n${scope.analysis_notes ? `\nNotes: ${scope.analysis_notes}` : ''}`;
+    const researchPrompt = `Research the following intervention for a CEA:\n\nIntervention: ${scope.intervention_name}\nDescription: ${scope.description}\nType: ${scope.intervention_type}\nGeography: ${scope.geography}\nPopulation: ${scope.population}\nCondition: ${scope.condition || 'N/A'}\n${scope.user_provided_data ? `\nUser-provided data:\n${JSON.stringify(scope.user_provided_data, null, 2)}` : ''}\n${scope.analysis_notes ? `\nNotes: ${scope.analysis_notes}` : ''}`;
 
-    const researchResponse = await callAgent(RESEARCH_AGENT_PROMPT, [{ role: 'user', content: researchPrompt }], getSubAgentModel(), 'Researching evidence...');
+    const webSearchTools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 10 }];
+    const researchResponse = await callAgent(RESEARCH_AGENT_PROMPT, [{ role: 'user', content: researchPrompt }], getSubAgentModel(), 'Researching evidence...', webSearchTools);
     let research;
     try {
       // Try to extract JSON from the response
@@ -1325,7 +1343,7 @@ async function runPipeline(scope) {
 
     // Stage 3: CEA Calculation
     updateStage(3, 'active');
-    const ceaInput = `Calculate the GiveWell-style CEA for "${scope.intervention_name}" using the following research and evaluation data.
+    const ceaInput = `Calculate the CEA for "${scope.intervention_name}" using the following research and evaluation data.
 
 ## Scope
 ${JSON.stringify(scope, null, 2)}
@@ -1357,7 +1375,7 @@ Produce the full CEA with parameters, calculations, results, and sensitivity ana
 
     // Stage 4: Report Generation
     updateStage(4, 'active');
-    const reportInput = `Generate a GiveWell-style CEA write-up for "${scope.intervention_name}".
+    const reportInput = `Generate a CEA write-up for "${scope.intervention_name}".
 
 ## Intervention
 ${JSON.stringify(scope, null, 2)}
@@ -1458,7 +1476,7 @@ async function sendMessage(userText) {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': getApiKey(),
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2025-01-24',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
@@ -1828,6 +1846,21 @@ function exportToExcel(data) {
   // Helper: fill
   const fill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
 
+  // Helper: calculate row height based on content and column widths
+  function autoRowHeight(row, colWidths, minHeight = 18) {
+    let maxLines = 1;
+    row.eachCell({ includeEmpty: false }, (cell, colNum) => {
+      const text = String(cell.value?.text || cell.value || '');
+      if (!text) return;
+      const colW = colWidths[colNum - 1] || 12;
+      // Approximate chars per column width unit (~1.2 chars per width unit at size 10-11)
+      const charsPerLine = Math.floor(colW * 1.2);
+      const lines = Math.ceil(text.length / charsPerLine);
+      if (lines > maxLines) maxLines = lines;
+    });
+    return Math.max(minHeight, maxLines * 15);
+  }
+
   // ---- Categorize parameters ----
   function categorizeParams(params) {
     const cats = {
@@ -1925,7 +1958,6 @@ function exportToExcel(data) {
         entry.source_url || '',
       ]);
       paramRowMap[entry.key] = row.number;
-      row.height = 18;
 
       // Column A: parameter name
       row.getCell(1).font = defaultFont;
@@ -1962,6 +1994,9 @@ function exportToExcel(data) {
       }
       row.getCell(7).border = thinBorder;
       row.getCell(7).alignment = { wrapText: true, vertical: 'top' };
+
+      // Auto-fit row height based on content
+      row.height = autoRowHeight(row, [38, 14, 14, 14, 18, 70, 45], 18);
     }
   }
 
@@ -2009,7 +2044,6 @@ function exportToExcel(data) {
       const formulaCols = ['B', 'C', 'D']; // Low, Base, High
       const vals = [c.low, c.base, c.high];
       const row = ws2.addRow([desc, c.low, c.base, c.high, c.unit || '', c.notes || c.formula || '']);
-      row.height = 18;
 
       // Column A
       row.getCell(1).font = defaultFont;
@@ -2036,6 +2070,9 @@ function exportToExcel(data) {
       row.getCell(6).fill = fill(C.sourceGray);
       row.getCell(6).border = thinBorder;
       row.getCell(6).alignment = { wrapText: true, vertical: 'top' };
+
+      // Auto-fit row height based on content
+      row.height = autoRowHeight(row, [40, 16, 16, 16, 12, 55], 18);
     }
   }
 
@@ -2103,7 +2140,7 @@ function exportToExcel(data) {
 
   // Multiple of benchmark - KEY RESULT
   if (r.multiple_of_benchmark) {
-    const row = ws3.addRow(['Multiple of GiveWell Benchmark', r.multiple_of_benchmark.low, r.multiple_of_benchmark.base, r.multiple_of_benchmark.high]);
+    const row = ws3.addRow(['Multiple of Cash Transfer Benchmark', r.multiple_of_benchmark.low, r.multiple_of_benchmark.base, r.multiple_of_benchmark.high]);
     row.height = 26;
     row.getCell(1).font = { bold: true, size: 14, name: 'Calibri' };
     row.getCell(1).fill = fill(C.yellowHighlight);
@@ -2147,13 +2184,15 @@ function exportToExcel(data) {
   const baseMultiple = r.multiple_of_benchmark?.base || 0;
   const meetsBase = r.meets_threshold?.base;
   const interpText = meetsBase
-    ? `This intervention achieves ${baseMultiple.toFixed(1)}x the GiveWell benchmark in the base case, exceeding the 8x cost-effectiveness threshold. It represents a promising investment opportunity.`
-    : `This intervention achieves ${baseMultiple.toFixed(1)}x the GiveWell benchmark in the base case, which is below the 8x cost-effectiveness threshold. Further optimization or cost reduction may be needed.`;
+    ? `This intervention achieves ${baseMultiple.toFixed(1)}x the cash transfer benchmark in the base case, exceeding the 8x cost-effectiveness threshold. It represents a promising investment opportunity.`
+    : `This intervention achieves ${baseMultiple.toFixed(1)}x the cash transfer benchmark in the base case, which is below the 8x cost-effectiveness threshold. Further optimization or cost reduction may be needed.`;
   const interpRow = ws3.addRow([interpText]);
   ws3.mergeCells(interpRow.number, 1, interpRow.number, 4);
   interpRow.getCell(1).font = { size: 11, name: 'Calibri' };
   interpRow.getCell(1).alignment = { wrapText: true, vertical: 'top' };
-  interpRow.height = 40;
+  // Auto-fit: total column width for merged cells is ~84
+  const interpLines = Math.ceil(interpText.length / (84 * 1.2));
+  interpRow.height = Math.max(40, interpLines * 15);
 
   ws3.addRow([]);
   const editNote = ws3.addRow(['To adjust scenarios, edit the Parameters sheet and re-export.']);
@@ -2199,7 +2238,6 @@ function exportToExcel(data) {
         s.impact_range,
         s.notes || '',
       ]);
-      row.height = 18;
 
       row.getCell(1).font = defaultFont;
       row.getCell(1).border = thinBorder;
@@ -2226,6 +2264,9 @@ function exportToExcel(data) {
       row.getCell(5).fill = fill(C.sourceGray);
       row.getCell(5).border = thinBorder;
       row.getCell(5).alignment = { wrapText: true, vertical: 'top' };
+
+      // Auto-fit row height based on content
+      row.height = autoRowHeight(row, [35, 16, 16, 18, 50], 18);
     }
   }
 
@@ -2324,7 +2365,7 @@ function exportToWord(data) {
 
   // Title
   children.push(new Paragraph({ text: name, heading: HeadingLevel.TITLE, spacing: { after: 200 } }));
-  children.push(new Paragraph({ text: 'GiveWell-Style Cost-Effectiveness Analysis', heading: HeadingLevel.HEADING_2, spacing: { after: 400 } }));
+  children.push(new Paragraph({ text: 'Cost-Effectiveness Analysis', heading: HeadingLevel.HEADING_2, spacing: { after: 400 } }));
 
   // Results summary
   children.push(new Paragraph({ text: 'Results Summary', heading: HeadingLevel.HEADING_1, spacing: { before: 400, after: 200 } }));
@@ -2344,6 +2385,18 @@ function exportToWord(data) {
   }
 
   const doc = new Document({
+    numbering: {
+      config: [{
+        reference: 'default-numbering',
+        levels: [{
+          level: 0,
+          format: 'decimal',
+          text: '%1.',
+          alignment: AlignmentType.START,
+          style: { paragraph: { indent: { left: 720, hanging: 360 } } }
+        }]
+      }]
+    },
     sections: [{ properties: {}, children }],
     creator: 'IDinsight CEA Tool',
     title: name
