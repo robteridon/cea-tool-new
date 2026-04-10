@@ -1231,7 +1231,7 @@ async function callAgent(systemPrompt, messages, model, thinkingLabel, tools) {
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': getApiKey(),
-      'anthropic-version': '2025-01-24',
+      'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify(body)
@@ -1476,7 +1476,7 @@ async function sendMessage(userText) {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': getApiKey(),
-        'anthropic-version': '2025-01-24',
+        'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
