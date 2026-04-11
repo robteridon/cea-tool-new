@@ -469,16 +469,6 @@ html, body { height: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFo
       </select>
     </div>
 
-    <div class="sidebar-section">
-      <label for="output-format-select">Output Format</label>
-      <select id="output-format-select">
-        <option value="sector" selected>Sector-Specific Metrics</option>
-        <option value="cash">Cash Equivalents</option>
-      </select>
-      <div id="output-format-hint" style="font-size:11px; color:#8892b0; margin-top:4px; line-height:1.3;">
-        Health: DALYs averted | Education: LAYS | Income: Consumption-equivalent value
-      </div>
-    </div>
 
     <div class="sidebar-section">
       <button class="btn btn-ghost btn-sm" id="gbd-lookup-btn">GBD Disability Weight Lookup</button>
@@ -598,34 +588,10 @@ let pipelineStage = 0;
 let pipelineResults = { scope: null, research: null, paperEvals: [], counterfactual: null, ceaResults: null, narrative: null };
 let lastCeaData = null;
 
-// Output format selector
-const outputFormatSelect = document.getElementById('output-format-select');
-const outputFormatHint = document.getElementById('output-format-hint');
-function getOutputFormat() { return outputFormatSelect.value; }
-outputFormatSelect.addEventListener('change', () => {
-  const hints = {
-    sector: 'Health: DALYs averted | Education: LAYS | Income: Consumption-equivalent value',
-    cash: 'All sectors reported in consumption-equivalent value per $10,000'
-  };
-  outputFormatHint.textContent = hints[outputFormatSelect.value] || '';
-});
-
-// Helper: get metric labels based on intervention type and output format
+// Helper: get metric labels based on intervention type
 function getSectorMetricInfo(data) {
-  const format = data?.output_format || getOutputFormat();
   const type = (data?.intervention?.type || '').toLowerCase();
 
-  if (format === 'cash') {
-    return {
-      primaryLabel: 'Value per $10,000',
-      primarySuffix: '',
-      sensitivityLabel: 'Impact on value per $10,000',
-      valuePerLabel: 'Value per $10,000',
-      costPerLabel: 'Cost per consumption-equivalent year',
-    };
-  }
-
-  // Sector-specific
   if (type === 'mortality' || type === 'morbidity') {
     return {
       primaryLabel: 'DALYs averted per $10,000',
@@ -710,7 +676,6 @@ The scope JSON must follow this schema:
   "geography": "string",
   "population": "string",
   "condition": "string (disease/condition targeted, or learning outcome for education)",
-  "output_format": "sector|cash",
   "user_provided_data": {
     "effect_size": "any data the user mentioned, or null",
     "cost_data": "any cost info the user mentioned, or null",
@@ -945,19 +910,16 @@ For interventions with multiple outcome pathways (e.g., a nutrition program redu
    - If pathways affect the same population: use the larger effect unless benefits are genuinely additive
    - If pathways affect different sub-populations: sum the benefits weighted by population share
 4. Use a single cost denominator (total program cost) across all pathways
-5. Report the combined metric:
-   - If output_format = "sector": use DALYs averted per $10,000 as the common metric (convert morbidity and mortality to DALYs, education to DALYs via income pathway if appropriate)
-   - If output_format = "cash": convert all pathways to consumption-equivalent value and sum
+5. Report the combined metric: use DALYs averted per $10,000 as the sector metric (convert morbidity and mortality to DALYs), AND convert all pathways to consumption-equivalent value for the cash metric
 6. In the parameters section, clearly label which parameters belong to which outcome pathway
 7. In sensitivity analysis, test pathway-specific parameters independently
 
-### Cash-Equivalent Conversions (for output_format = "cash")
-When the scope has output_format = "cash", convert all results to consumption-equivalent value:
+### Cash-Equivalent Conversions
+Always convert results to consumption-equivalent value for the cash_metric in addition to the sector_metric:
 - Mortality: Value per $10,000 = DALYs Averted per $10,000 x value per DALY in consumption-equivalent years (~2.3 consumption-equivalent years per DALY, based on standard welfare estimates)
 - Morbidity: Value per $10,000 = DALYs Averted per $10,000 x 2.3
 - Education: Value per $10,000 = LAYS per $10,000 x 1 (1 LAYS ≈ 1 consumption-equivalent year)
 - Income: already in consumption-equivalent units
-When output_format = "cash", set sector_metric.name = "Value per $10,000" and cost_per_outcome_name = "Cost per consumption-equivalent year" for ALL types.
 
 ### Sensitivity Analysis
 Vary each parameter individually from low to high while holding others at base, measuring change in the primary output metric. Report top 5-8 most impactful.
@@ -970,41 +932,45 @@ For each parameter, report:
 
 ## OUTPUT FORMAT
 
-The scope includes an "output_format" field:
-- "sector": Use sector-specific metrics (DALYs for health, LAYS for education, value for income)
-- "cash": Convert all results to consumption-equivalent value per $10,000
-
-Return valid JSON inside <cea-results>...</cea-results> tags:
+Always report BOTH sector-specific metrics AND cash-equivalent value. Return valid JSON inside <cea-results>...</cea-results> tags:
 {
   "intervention": { "name": "string", "type": "mortality|morbidity|education|income|mixed", "geography": "string", "population": "string", "condition": "string" },
-  "output_format": "sector|cash",
   "parameters": { "parameter_name": { "low": number, "base": number, "high": number, "unit": "string", "source": "string" } },
-  "calculations": { "step_name": { "description": "string", "low": number, "base": number, "high": number, "unit": "string" } },
+  "calculations": { "step_name": { "description": "string", "formula": "string", "low": number, "base": number, "high": number, "unit": "string" } },
   "results": {
     "sector_metric": {
       "name": "string",
       "values": { "low": number, "base": number, "high": number },
       "cost_per_outcome": { "low": number, "base": number, "high": number },
       "cost_per_outcome_name": "string"
+    },
+    "cash_metric": {
+      "name": "Value per $10,000",
+      "values": { "low": number, "base": number, "high": number },
+      "cost_per_outcome": { "low": number, "base": number, "high": number },
+      "cost_per_outcome_name": "Cost per consumption-equivalent year"
     }
   },
   "sensitivity": [{ "parameter": "string", "low_value": number, "high_value": number, "base_outcome": number, "low_outcome": number, "high_outcome": number, "impact_range": number }]
 }
 
-NOTES on sector_metric (when output_format = "sector"):
+NOTES on sector_metric (use the appropriate sector-specific metric):
 - For mortality: name="DALYs averted per $10,000", cost_per_outcome_name="Cost per DALY averted"
 - For morbidity: name="DALYs averted per $10,000", cost_per_outcome_name="Cost per DALY averted"
 - For education: name="LAYS per $10,000", cost_per_outcome_name="Cost per LAYS"
 - For income: name="Value per $10,000", cost_per_outcome_name="Cost per consumption-equivalent year"
 - For mixed: use DALYs averted per $10,000 as the common metric (sum across pathways), or Value per $10,000 if the primary outcome is income/education
 
-When output_format = "cash": name="Value per $10,000", cost_per_outcome_name="Cost per consumption-equivalent year" for ALL types.
+NOTES on cash_metric: ALWAYS "Value per $10,000" and "Cost per consumption-equivalent year" for ALL intervention types. Convert from sector metrics using the cash-equivalent conversion formulas above.
 
 IMPORTANT:
 - All numbers must be valid JSON numbers (not strings, NaN, or Infinity)
 - Round to 2 decimal places
 - Include 10-20 parameters covering effect size, baseline rates, costs, all adjustment factors, coverage, discount rate, and benefit duration
 - Include 6-10 calculation steps showing the full chain
+- For each calculation step:
+  - "description": A short, intuitive plain-English label explaining WHAT this step represents (e.g., "Deaths averted per child treated", "Apply adjustment factors", "Cost per death averted", "Total DALYs averted per $10,000"). Follow GiveWell's style — each label should be immediately understandable without reading the formula.
+  - "formula": The mathematical formula showing HOW the value is computed (e.g., "= Baseline mortality × Effect size × Coverage", "= Step 3 × IV × EV × Counterfactual × Monitoring", "= Cost per person / Adjusted deaths averted"). Use parameter names, not raw numbers.
 - Be rigorous: use the research data provided. Cite sources.`;
 
 const REPORT_AGENT_PROMPT = `You are a report generation agent producing a comprehensive CEA write-up.
@@ -1046,11 +1012,11 @@ const REPORT_AGENT_PROMPT = `You are a report generation agent producing a compr
 ### 4.2 Key parameters (table with low/base/high)
 ### 4.3 Results by scenario (table)
   - Present the primary metric for each scenario (low/base/high)
-  - IMPORTANT: Check the output_format field in the CEA results. If output_format is "cash", report ALL results as "Value per $10,000" and "Cost per consumption-equivalent year" — do NOT use DALYs or LAYS terminology.
-  - If output_format is "sector" (or absent), use sector-specific metrics:
-    - Health: DALYs averted per $10,000 and cost per DALY. Compare cost per DALY to current cost-effectiveness thresholds: for low-income countries, use supply-side thresholds of ~$50-350/DALY (Ochalek et al. 2018; Woods et al. 2016) rather than the retired WHO-CHOICE GDP/capita rule. For context, GiveWell uses an 8x bar (~$50/DALY equivalent for direct comparison)
-    - Education: LAYS per $10,000 and cost per LAYS. Contextualize against comparable programs from J-PAL evidence reviews
-    - Income: value per $10,000 and cost per consumption-equivalent year
+  - Report BOTH sector-specific metrics AND cash-equivalent value:
+    - Sector metrics: Health uses DALYs averted per $10,000 and cost per DALY; Education uses LAYS per $10,000 and cost per LAYS; Income uses value per $10,000 and cost per consumption-equivalent year
+    - Cash equivalents: Always also report Value per $10,000 and Cost per consumption-equivalent year
+    - Compare cost per DALY to current cost-effectiveness thresholds: for low-income countries, use supply-side thresholds of ~$50-350/DALY (Ochalek et al. 2018; Woods et al. 2016) rather than the retired WHO-CHOICE GDP/capita rule. For context, GiveWell uses an 8x bar (~$50/DALY equivalent for direct comparison)
+    - For education, contextualize against comparable programs from J-PAL evidence reviews
 ### 4.4 Sensitivity analysis
 
 ## 5. Key Uncertainties
@@ -1378,8 +1344,9 @@ compareRunBtn.addEventListener('click', () => {
   const names = entries.map(e => esc(e.data.intervention?.name || 'Untitled'));
   const metrics = entries.map(e => {
     const sm = e.data.results?.sector_metric || {};
+    const cm = e.data.results?.cash_metric || {};
     const info = getSectorMetricInfo(e.data);
-    return { name: sm.name || info.valuePerLabel, values: sm.values || {}, cost: sm.cost_per_outcome || {}, costName: sm.cost_per_outcome_name || info.costPerLabel || '' };
+    return { name: sm.name || info.valuePerLabel, values: sm.values || {}, cost: sm.cost_per_outcome || {}, costName: sm.cost_per_outcome_name || info.costPerLabel || '', cashValues: cm.values || {}, cashCost: cm.cost_per_outcome || {} };
   });
 
   let html = '<table class="compare-table"><thead><tr><th>Metric</th>';
@@ -1397,18 +1364,23 @@ compareRunBtn.addEventListener('click', () => {
   html += '</tr>';
 
   // Primary metric (base)
-  html += '<tr><td>Primary metric (base)</td>';
+  html += '<tr><td>Sector metric (base)</td>';
   metrics.forEach(m => { html += `<td><strong>${m.values.base != null ? parseFloat(m.values.base).toFixed(1) : '\u2014'}</strong><br><span style="font-size:11px;color:var(--text-light);">${esc(m.name)}</span></td>`; });
   html += '</tr>';
 
   // Primary metric range
-  html += '<tr><td>Range (low \u2013 high)</td>';
+  html += '<tr><td>Sector range (low \u2013 high)</td>';
   metrics.forEach(m => { html += `<td>${m.values.low != null ? parseFloat(m.values.low).toFixed(1) : '?'} \u2013 ${m.values.high != null ? parseFloat(m.values.high).toFixed(1) : '?'}</td>`; });
   html += '</tr>';
 
   // Cost per outcome (base)
   html += '<tr><td>Cost per outcome (base)</td>';
   metrics.forEach(m => { html += `<td>${m.cost.base != null ? '$' + fmt(m.cost.base) : '\u2014'}<br><span style="font-size:11px;color:var(--text-light);">${esc(m.costName)}</span></td>`; });
+  html += '</tr>';
+
+  // Cash-equivalent value (base)
+  html += '<tr><td>Value per $10,000 (cash equiv.)</td>';
+  metrics.forEach(m => { html += `<td><strong>${m.cashValues.base != null ? parseFloat(m.cashValues.base).toFixed(1) : '\u2014'}</strong></td>`; });
   html += '</tr>';
 
   // Cost range
@@ -1836,18 +1808,15 @@ Produce the full CEA with parameters, calculations, results, and sensitivity ana
     const ceaResponse = await callAgent(CEA_CALCULATOR_PROMPT, [{ role: 'user', content: ceaInput }], getSelectedModel(), 'Calculating cost-effectiveness...');
     let ceaResults = extractJSON(ceaResponse, 'cea-results');
     if (!ceaResults) throw new Error('CEA calculator did not return valid results. The model may have produced malformed JSON.');
-    if (!ceaResults.output_format) ceaResults.output_format = scope.output_format || 'sector';
     pipelineResults.ceaResults = ceaResults;
     updateStage(3, 'complete');
 
     // Stage 4: Report Generation
     updateStage(4, 'active');
-    const outputFmt = ceaResults.output_format || scope.output_format || 'sector';
     const reportInput = `Generate a CEA write-up for "${scope.intervention_name}".
 
 ## Output Format
-output_format: "${outputFmt}"
-${outputFmt === 'cash' ? 'IMPORTANT: All results are in consumption-equivalent value. Report as "Value per $10,000" and "Cost per consumption-equivalent year". Do NOT use DALYs or LAYS terminology.' : 'Use sector-specific metrics (DALYs for health, LAYS for education, value for income).'}
+Report BOTH sector-specific metrics (DALYs for health, LAYS for education, value for income) AND cash-equivalent value (Value per $10,000).
 
 ## Intervention
 ${JSON.stringify(scope, null, 2)}
@@ -1954,7 +1923,7 @@ async function sendMessage(userText) {
       body: JSON.stringify({
         model: getSelectedModel(),
         max_tokens: 16000,
-        system: CONVERSATION_SYSTEM_PROMPT + `\n\nCurrent output_format setting: "${getOutputFormat()}". Include this value in the cea-scope JSON.`,
+        system: CONVERSATION_SYSTEM_PROMPT,
         messages: conversationHistory,
         stream: true
       })
@@ -2018,7 +1987,6 @@ async function sendMessage(userText) {
 
       try {
         const scope = JSON.parse(scopeMatch[1]);
-        scope.output_format = getOutputFormat();
         pipelineResults.scope = scope;
         // Disable input during pipeline
         isStreaming = false;
@@ -2239,10 +2207,7 @@ ${JSON.stringify(editedParams, null, 2)}
 ## Original Calculations (for reference on methodology)
 ${JSON.stringify(originalData.calculations, null, 2)}
 
-## Output Format
-${originalData.output_format ? 'output_format: "' + originalData.output_format + '"' : 'output_format: "sector"'}
-
-Recompute all calculation steps using the modified parameters and produce updated results. Return the full JSON inside <cea-results> tags, using the same structure as before.`;
+Recompute all calculation steps using the modified parameters and produce updated results. Report both sector-specific metrics and cash-equivalent value. Return the full JSON inside <cea-results> tags, using the same structure as before.`;
 
   try {
     const response = await callAgent(
@@ -2258,7 +2223,6 @@ Recompute all calculation steps using the modified parameters and produce update
 
     // Preserve narrative from original
     if (originalData.narrative && !newResults.narrative) newResults.narrative = originalData.narrative;
-    if (!newResults.output_format) newResults.output_format = originalData.output_format || 'sector';
 
     // Update state
     lastCeaData = newResults;
@@ -2299,8 +2263,10 @@ function createSummaryCards(data) {
   wrap.className = 'summary-card';
   const info = getSectorMetricInfo(data);
   const sm = data?.results?.sector_metric || {};
+  const cm = data?.results?.cash_metric || {};
   const sectorVals = sm.values || {};
 
+  // Sector metric cards
   ['low','base','high'].forEach(scenario => {
     const card = document.createElement('div');
     card.className = `scenario-card ${scenario}`;
@@ -2315,7 +2281,7 @@ function createSummaryCards(data) {
     wrap.appendChild(card);
   });
 
-  // Cost-per-outcome row
+  // Sector cost-per-outcome row
   const costPerOutcome = sm.cost_per_outcome;
   if (costPerOutcome) {
     const costRow = document.createElement('div');
@@ -2329,6 +2295,42 @@ function createSummaryCards(data) {
       costRow.appendChild(chip);
     });
     wrap.appendChild(costRow);
+  }
+
+  // Cash-equivalent metric row
+  const cashVals = cm.values || {};
+  if (cashVals.base != null) {
+    const cashLabel = document.createElement('div');
+    cashLabel.style.cssText = 'margin-top:12px;font-size:12px;font-weight:600;color:var(--text-light);';
+    cashLabel.textContent = 'Cash Equivalents';
+    wrap.appendChild(cashLabel);
+
+    const cashRow = document.createElement('div');
+    cashRow.style.cssText = 'display:flex;gap:12px;margin-top:4px;';
+    const cashName = cm.name || 'Value per $10,000';
+    ['low','base','high'].forEach(scenario => {
+      const chip = document.createElement('div');
+      chip.style.cssText = 'flex:1;text-align:center;padding:8px;background:#f8fafc;border-radius:6px;font-size:12px;';
+      const cVal = cashVals[scenario];
+      chip.innerHTML = `<span style="color:var(--text-light);">${cashName}:</span> <strong>${cVal != null ? fmt(cVal) : '\u2014'}</strong>`;
+      cashRow.appendChild(chip);
+    });
+    wrap.appendChild(cashRow);
+
+    const cashCost = cm.cost_per_outcome;
+    if (cashCost) {
+      const cashCostRow = document.createElement('div');
+      cashCostRow.style.cssText = 'display:flex;gap:12px;margin-top:4px;';
+      const cashCostName = cm.cost_per_outcome_name || 'Cost per consumption-equivalent year';
+      ['low','base','high'].forEach(scenario => {
+        const chip = document.createElement('div');
+        chip.style.cssText = 'flex:1;text-align:center;padding:8px;background:#f8fafc;border-radius:6px;font-size:12px;';
+        const cVal = cashCost[scenario];
+        chip.innerHTML = `<span style="color:var(--text-light);">${cashCostName}:</span> <strong>$${cVal != null ? fmt(cVal) : '\u2014'}</strong>`;
+        cashCostRow.appendChild(chip);
+      });
+      wrap.appendChild(cashCostRow);
+    }
   }
 
   return wrap;
@@ -2359,13 +2361,15 @@ function createCalcTable(calcs) {
   const section = document.createElement('div');
   section.className = 'results-section';
   let html = `<h4>Calculations</h4><table class="results-table">
-    <thead><tr><th>Step</th><th class="col-low">Low</th><th class="col-base">Base</th><th class="col-high">High</th><th>Unit</th></tr></thead><tbody>`;
+    <thead><tr><th>Step</th><th>Formula</th><th class="col-low">Low</th><th class="col-base">Base</th><th class="col-high">High</th><th>Unit</th></tr></thead><tbody>`;
   for (const [key, c] of Object.entries(calcs)) {
     const name = c.description || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    const formulaText = c.formula || c.notes || '';
     const kl = key.toLowerCase();
     const isFinal = kl.includes('dalys_per') || kl.includes('dalys_averted_per') || kl.includes('lays_per') || kl.includes('cost_per_daly') || kl.includes('cost_per_lays') || kl.includes('value_per_10') || kl.includes('cost_per_consumption');
     html += `<tr style="${isFinal ? 'font-weight:700;background:#f8fafc;' : ''}">
       <td>${esc(name)}</td>
+      <td style="font-size:0.85em;color:#666;">${esc(formulaText)}</td>
       <td class="col-low">${fmt(c.low)}</td>
       <td class="col-base">${fmt(c.base)}</td>
       <td class="col-high">${fmt(c.high)}</td>
@@ -2692,21 +2696,21 @@ function exportToExcel(data) {
   // ======== Sheet 2: Calculations ========
   const ws2 = wb.addWorksheet('Calculations');
   ws2.columns = [
-    { width: 40 }, { width: 16 }, { width: 16 }, { width: 16 },
-    { width: 12 }, { width: 55 },
+    { width: 38 }, { width: 48 }, { width: 16 }, { width: 16 }, { width: 16 },
+    { width: 12 },
   ];
 
-  const calcHeaders = ['Calculation Step', 'Low', 'Base', 'High', 'Unit', 'Notes'];
+  const calcHeaders = ['Description', 'Formula', 'Low', 'Base', 'High', 'Unit'];
   const hRow2 = ws2.addRow(calcHeaders);
   hRow2.height = 22;
-  const headerFills2 = [C.headerBlue, C.lowCalc, C.baseCalc, C.highCalc, C.headerBlue, C.headerBlue];
+  const headerFills2 = [C.headerBlue, C.headerBlue, C.lowCalc, C.baseCalc, C.highCalc, C.headerBlue];
   hRow2.eachCell((cell, colNum) => {
     cell.font = whiteFontBold;
     cell.fill = fill(headerFills2[colNum - 1]);
     cell.alignment = { horizontal: 'center', vertical: 'middle' };
     cell.border = fullThinBorder;
   });
-  [2, 3, 4].forEach(c => {
+  [3, 4, 5].forEach(c => {
     hRow2.getCell(c).font = { bold: true, size: 11, name: 'Calibri', color: { argb: C.black } };
   });
 
@@ -2727,20 +2731,24 @@ function exportToExcel(data) {
       }
 
       const desc = c.description || key.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+      const formulaText = c.formula || c.notes || '';
       const fmt = numFmt(c.unit);
 
-      // Try to create formulas referencing Parameters sheet
-      const formulaCols = ['B', 'C', 'D']; // Low, Base, High
-      const vals = [c.low, c.base, c.high];
-      const row = ws2.addRow([desc, c.low, c.base, c.high, c.unit || '', c.notes || c.formula || '']);
+      const row = ws2.addRow([desc, formulaText, c.low, c.base, c.high, c.unit || '']);
 
-      // Column A
+      // Column A: description
       row.getCell(1).font = defaultFont;
       row.getCell(1).border = thinBorder;
       row.getCell(1).alignment = { vertical: 'middle', wrapText: true };
 
-      // Columns B-D with calc colors
-      [2, 3, 4].forEach((col, idx) => {
+      // Column B: formula
+      row.getCell(2).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
+      row.getCell(2).fill = fill(C.sourceGray);
+      row.getCell(2).border = thinBorder;
+      row.getCell(2).alignment = { wrapText: true, vertical: 'middle' };
+
+      // Columns C-E with calc colors
+      [3, 4, 5].forEach((col, idx) => {
         const cell = row.getCell(col);
         cell.font = defaultFont;
         cell.fill = fill([C.lowCalc, C.baseCalc, C.highCalc][idx]);
@@ -2749,279 +2757,16 @@ function exportToExcel(data) {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
       });
 
-      // Column E: unit
-      row.getCell(5).font = defaultFont;
-      row.getCell(5).border = thinBorder;
-      row.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
-
-      // Column F: notes
-      row.getCell(6).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
-      row.getCell(6).fill = fill(C.sourceGray);
+      // Column F: unit
+      row.getCell(6).font = defaultFont;
       row.getCell(6).border = thinBorder;
-      row.getCell(6).alignment = { wrapText: true, vertical: 'top' };
+      row.getCell(6).alignment = { horizontal: 'center', vertical: 'middle' };
 
       // Auto-fit row height based on content
-      row.height = autoRowHeight(row, [40, 16, 16, 16, 12, 55], 18);
+      row.height = autoRowHeight(row, [38, 48, 16, 16, 16, 12], 18);
     }
   }
 
-  // ======== Sheet 3: Results ========
-  const ws3 = wb.addWorksheet('Results');
-  ws3.columns = [
-    { width: 30 }, { width: 18 }, { width: 18 }, { width: 18 },
-  ];
-
-  const r = data.results || {};
-
-  // Title
-  const titleRow = ws3.addRow([`Cost-Effectiveness Analysis: ${name}`]);
-  ws3.mergeCells(titleRow.number, 1, titleRow.number, 4);
-  titleRow.getCell(1).font = { bold: true, size: 16, name: 'Calibri', color: { argb: C.headerBlue } };
-  titleRow.height = 28;
-
-  // Intervention info
-  const intv = data.intervention || {};
-  if (intv.type || intv.geography || intv.population || intv.condition) {
-    const infoItems = [
-      intv.type ? `Type: ${intv.type}` : '',
-      intv.geography ? `Geography: ${intv.geography}` : '',
-      intv.population ? `Population: ${intv.population}` : '',
-      intv.condition ? `Condition: ${intv.condition}` : '',
-    ].filter(Boolean).join('  |  ');
-    const infoRow = ws3.addRow([infoItems]);
-    ws3.mergeCells(infoRow.number, 1, infoRow.number, 4);
-    infoRow.getCell(1).font = { size: 10, name: 'Calibri', color: { argb: 'FF666666' } };
-    infoRow.height = 18;
-  }
-
-  ws3.addRow([]); // spacer
-
-  // Results header
-  const resHeaders = ['Metric', 'Low', 'Base', 'High'];
-  const hRow3 = ws3.addRow(resHeaders);
-  hRow3.height = 22;
-  const headerFills3 = [C.headerBlue, C.lowCalc, C.baseCalc, C.highCalc];
-  hRow3.eachCell((cell, colNum) => {
-    cell.font = whiteFontBold;
-    cell.fill = fill(headerFills3[colNum - 1]);
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
-    cell.border = fullThinBorder;
-  });
-  [2, 3, 4].forEach(c => {
-    hRow3.getCell(c).font = { bold: true, size: 11, name: 'Calibri', color: { argb: C.black } };
-  });
-
-  const excelMetricInfo = getSectorMetricInfo(data);
-  const sm = r.sector_metric || {};
-
-  // Primary sector metric - KEY RESULT
-  if (sm.values) {
-    const sLabel = sm.name || excelMetricInfo.valuePerLabel;
-    const sRow = ws3.addRow([sLabel, sm.values.low, sm.values.base, sm.values.high]);
-    sRow.height = 26;
-    sRow.getCell(1).font = { bold: true, size: 14, name: 'Calibri' };
-    sRow.getCell(1).fill = fill(C.yellowHighlight);
-    sRow.getCell(1).border = fullThinBorder;
-    [2, 3, 4].forEach(c => {
-      const cell = sRow.getCell(c);
-      cell.font = { bold: true, size: 14, name: 'Calibri' };
-      cell.numFmt = '#,##0.00';
-      cell.fill = fill(C.yellowHighlight);
-      cell.border = fullThinBorder;
-      cell.alignment = { horizontal: 'center' };
-    });
-  }
-
-  // Cost per outcome
-  if (sm.cost_per_outcome) {
-    const cLabel = sm.cost_per_outcome_name || excelMetricInfo.costPerLabel || 'Cost per outcome';
-    const cRow = ws3.addRow([cLabel, sm.cost_per_outcome.low, sm.cost_per_outcome.base, sm.cost_per_outcome.high]);
-    cRow.height = 20;
-    cRow.getCell(1).font = boldFont;
-    cRow.getCell(1).border = thinBorder;
-    [2, 3, 4].forEach((c, idx) => {
-      const cell = cRow.getCell(c);
-      cell.font = boldFont;
-      cell.numFmt = '$#,##0.00';
-      cell.fill = fill([C.lowParam, C.baseParam, C.highParam][idx]);
-      cell.border = thinBorder;
-      cell.alignment = { horizontal: 'center' };
-    });
-  }
-
-  // Spacer + interpretation
-  ws3.addRow([]);
-  const interpTitle = ws3.addRow(['Interpretation']);
-  interpTitle.getCell(1).font = { bold: true, size: 13, name: 'Calibri', color: { argb: C.headerBlue } };
-  interpTitle.height = 22;
-
-  const sMetricBase = sm.values?.base || 0;
-  const sMetricName = sm.name || excelMetricInfo.valuePerLabel;
-  const costBase = sm.cost_per_outcome?.base;
-  const costName = sm.cost_per_outcome_name || '';
-  const interpText = `This intervention produces ${sMetricBase.toFixed(1)} ${sMetricName} in the base case` +
-    (costBase ? ` (${costName}: $${costBase.toFixed(0)}).` : '.');
-  const interpRow = ws3.addRow([interpText]);
-  ws3.mergeCells(interpRow.number, 1, interpRow.number, 4);
-  interpRow.getCell(1).font = { size: 11, name: 'Calibri' };
-  interpRow.getCell(1).alignment = { wrapText: true, vertical: 'top' };
-  // Auto-fit: total column width for merged cells is ~84
-  const interpLines = Math.ceil(interpText.length / (84 * 1.2));
-  interpRow.height = Math.max(40, interpLines * 15);
-
-  ws3.addRow([]);
-  const editNote = ws3.addRow(['To adjust scenarios, edit the Parameters sheet and re-export.']);
-  ws3.mergeCells(editNote.number, 1, editNote.number, 4);
-  editNote.getCell(1).font = { italic: true, size: 10, name: 'Calibri', color: { argb: 'FF888888' } };
-
-  // ======== Sheet 4: Tornado (Sensitivity) ========
-  const ws4 = wb.addWorksheet('Sensitivity');
-  const hasTornado = data.sensitivity?.some(s => s.base_outcome != null);
-  if (hasTornado) {
-    ws4.columns = [
-      { width: 35 }, { width: 16 }, { width: 16 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 },
-    ];
-  } else {
-    ws4.columns = [
-      { width: 35 }, { width: 16 }, { width: 16 }, { width: 18 }, { width: 50 },
-    ];
-  }
-
-  const colCount = hasTornado ? 7 : 5;
-
-  // Title
-  const sensTitle = ws4.addRow(['Sensitivity Analysis (Tornado)']);
-  ws4.mergeCells(sensTitle.number, 1, sensTitle.number, colCount);
-  sensTitle.getCell(1).font = { bold: true, size: 14, name: 'Calibri', color: { argb: C.headerBlue } };
-  sensTitle.height = 24;
-
-  const sensSubLabel = `Parameter-level impact on ${(sm.name || excelMetricInfo.valuePerLabel).toLowerCase()}`;
-  const sensSubtitle = ws4.addRow([sensSubLabel]);
-  ws4.mergeCells(sensSubtitle.number, 1, sensSubtitle.number, colCount);
-  sensSubtitle.getCell(1).font = { size: 10, name: 'Calibri', color: { argb: 'FF666666' } };
-  sensSubtitle.height = 18;
-
-  ws4.addRow([]); // spacer
-
-  // Headers
-  const sensHeaders = hasTornado
-    ? ['Parameter', 'Low Value', 'High Value', 'Low Outcome', 'Base Outcome', 'High Outcome', 'Impact Range']
-    : ['Parameter', 'Low Value', 'High Value', 'Impact Range', 'Notes'];
-  const hRow4 = ws4.addRow(sensHeaders);
-  hRow4.height = 22;
-  hRow4.eachCell((cell) => {
-    cell.font = whiteFontBold;
-    cell.fill = fill(C.headerBlue);
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
-    cell.border = fullThinBorder;
-  });
-
-  if (data.sensitivity) {
-    for (const s of data.sensitivity) {
-      const row = hasTornado
-        ? ws4.addRow([s.parameter, s.low_value, s.high_value, s.low_outcome, s.base_outcome, s.high_outcome, s.impact_range])
-        : ws4.addRow([s.parameter, s.low_value, s.high_value, s.impact_range, s.notes || '']);
-
-      row.getCell(1).font = defaultFont;
-      row.getCell(1).border = thinBorder;
-      row.getCell(1).alignment = { vertical: 'middle' };
-
-      row.getCell(2).font = defaultFont;
-      row.getCell(2).fill = fill(C.lowParam);
-      if (typeof s.low_value === 'number') row.getCell(2).numFmt = '#,##0.00';
-      row.getCell(2).border = thinBorder;
-      row.getCell(2).alignment = { horizontal: 'center' };
-
-      row.getCell(3).font = defaultFont;
-      row.getCell(3).fill = fill(C.highParam);
-      if (typeof s.high_value === 'number') row.getCell(3).numFmt = '#,##0.00';
-      row.getCell(3).border = thinBorder;
-      row.getCell(3).alignment = { horizontal: 'center' };
-
-      if (hasTornado) {
-        // Low outcome, base outcome, high outcome, impact range
-        for (let ci = 4; ci <= 7; ci++) {
-          const cell = row.getCell(ci);
-          cell.font = ci === 7 ? boldFont : defaultFont;
-          cell.numFmt = '#,##0.00';
-          cell.border = thinBorder;
-          cell.alignment = { horizontal: 'center' };
-          if (ci === 4) cell.fill = fill(C.lowParam);
-          else if (ci === 6) cell.fill = fill(C.highParam);
-        }
-        row.height = 18;
-      } else {
-        row.getCell(4).font = boldFont;
-        row.getCell(4).numFmt = '#,##0.00';
-        row.getCell(4).border = thinBorder;
-        row.getCell(4).alignment = { horizontal: 'center' };
-
-        row.getCell(5).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
-        row.getCell(5).fill = fill(C.sourceGray);
-        row.getCell(5).border = thinBorder;
-        row.getCell(5).alignment = { wrapText: true, vertical: 'top' };
-        row.height = autoRowHeight(row, [35, 16, 16, 18, 50], 18);
-      }
-    }
-  }
-
-  // Scenario comparison
-  ws4.addRow([]);
-  const compTitle = ws4.addRow(['Scenario Comparison']);
-  ws4.mergeCells(compTitle.number, 1, compTitle.number, colCount);
-  compTitle.getCell(1).font = { bold: true, size: 12, name: 'Calibri', color: { argb: C.headerBlue } };
-  compTitle.height = 22;
-
-  const metricLabel = sm.name || excelMetricInfo.valuePerLabel;
-  const costLabel = sm.cost_per_outcome_name || excelMetricInfo.costPerLabel || 'Cost per outcome';
-  const compHeaders = ws4.addRow(['Scenario', metricLabel, costLabel]);
-  compHeaders.eachCell((cell) => {
-    cell.font = { bold: true, size: 11, name: 'Calibri' };
-    cell.fill = fill(C.sectionGray);
-    cell.border = fullThinBorder;
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
-  });
-
-  const scenarios = ['low', 'base', 'high'];
-  const scenarioColors = [C.lowParam, C.baseParam, C.highParam];
-  const scenarioLabels = ['Low (Conservative)', 'Base Case', 'High (Optimistic)'];
-  scenarios.forEach((sc, idx) => {
-    const row = ws4.addRow([
-      scenarioLabels[idx],
-      sm.values?.[sc] || '',
-      sm.cost_per_outcome?.[sc] || '',
-    ]);
-    row.getCell(1).font = boldFont;
-    row.getCell(1).fill = fill(scenarioColors[idx]);
-    row.getCell(1).border = thinBorder;
-    [2, 3].forEach(c => {
-      const cell = row.getCell(c);
-      cell.font = defaultFont;
-      cell.border = thinBorder;
-      cell.alignment = { horizontal: 'center' };
-      cell.numFmt = c === 3 ? '$#,##0.00' : '#,##0.00';
-    });
-  });
-
-  // Interpretation notes
-  ws4.addRow([]);
-  const notesTitle = ws4.addRow(['Interpretation Notes']);
-  ws4.mergeCells(notesTitle.number, 1, notesTitle.number, colCount);
-  notesTitle.getCell(1).font = { bold: true, size: 11, name: 'Calibri' };
-  notesTitle.getCell(1).fill = fill(C.sectionGray);
-  notesTitle.getCell(1).border = fullThinBorder;
-
-  const notes = [
-    'Parameters are sorted by impact range (largest sensitivity at top).',
-    `Impact range = difference in ${(sm.name || excelMetricInfo.valuePerLabel).toLowerCase()} between low and high parameter values.`,
-    'Parameters with the largest impact ranges represent the greatest sources of uncertainty.',
-  ];
-  notes.forEach(note => {
-    const row = ws4.addRow([`  \u2022  ${note}`]);
-    ws4.mergeCells(row.number, 1, row.number, colCount);
-    row.getCell(1).font = { size: 10, name: 'Calibri', color: { argb: 'FF555555' } };
-    row.getCell(1).alignment = { wrapText: true };
-  });
 
   // ---- Generate file ----
   wb.xlsx.writeBuffer().then(buffer => {
