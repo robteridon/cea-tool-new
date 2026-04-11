@@ -910,16 +910,29 @@ For interventions with multiple outcome pathways (e.g., a nutrition program redu
    - If pathways affect the same population: use the larger effect unless benefits are genuinely additive
    - If pathways affect different sub-populations: sum the benefits weighted by population share
 4. Use a single cost denominator (total program cost) across all pathways
-5. Report the combined metric: use DALYs averted per $10,000 as the sector metric (convert morbidity and mortality to DALYs), AND convert all pathways to consumption-equivalent value for the cash metric
+5. Report the combined metric: use DALYs averted per $10,000 as the sector metric (convert morbidity and mortality to DALYs), AND convert to units of value and compute multiples of cash transfers
 6. In the parameters section, clearly label which parameters belong to which outcome pathway
 7. In sensitivity analysis, test pathway-specific parameters independently
 
-### Cash-Equivalent Conversions
-Always convert results to consumption-equivalent value for the cash_metric in addition to the sector_metric:
-- Mortality: Value per $10,000 = DALYs Averted per $10,000 x value per DALY in consumption-equivalent years (~2.3 consumption-equivalent years per DALY, based on standard welfare estimates)
-- Morbidity: Value per $10,000 = DALYs Averted per $10,000 x 2.3
-- Education: Value per $10,000 = LAYS per $10,000 x 1 (1 LAYS ≈ 1 consumption-equivalent year)
-- Income: already in consumption-equivalent units
+### GiveWell Benchmark: Multiples of Cash Transfers
+The bottom-line cost-effectiveness metric is "X times as cost-effective as cash transfers", following GiveWell's methodology.
+
+**Step 1: Convert all outcomes to "units of value"** (1 unit = doubling consumption for 1 person for 1 year)
+Use these moral weights for conversion:
+- Averting 1 under-5 death = 116.25 units of value
+- Averting 1 adult death (5+) = 73.19 units of value
+- 1 unit of ln(consumption) increase for 1 person for 1 year = 1.4427 units of value (= 1/ln(2))
+- Doubling consumption for 1 person for 1 year = 1.0 unit of value
+- 1 DALY averted ≈ 2.3 units of value (approximate conversion)
+
+**Step 2: Calculate units of value per dollar**
+Units of value per dollar = Total units of value generated / Total cost
+
+**Step 3: Divide by GiveDirectly baseline**
+GiveDirectly produces approximately 0.00335 units of value per dollar (after all adjustments).
+Multiples of cash transfers = Intervention's units of value per dollar / 0.00335
+
+Report this as the "cash_benchmark" in results. An intervention at 1x is as cost-effective as GiveDirectly cash transfers. Above 1x is more cost-effective. GiveWell's bar for top charities is typically 8x or higher.
 
 ### Sensitivity Analysis
 Vary each parameter individually from low to high while holding others at base, measuring change in the primary output metric. Report top 5-8 most impactful.
@@ -932,7 +945,7 @@ For each parameter, report:
 
 ## OUTPUT FORMAT
 
-Always report BOTH sector-specific metrics AND cash-equivalent value. Return valid JSON inside <cea-results>...</cea-results> tags:
+Always report BOTH sector-specific metrics AND cost-effectiveness in multiples of cash transfers. Return valid JSON inside <cea-results>...</cea-results> tags:
 {
   "intervention": { "name": "string", "type": "mortality|morbidity|education|income|mixed", "geography": "string", "population": "string", "condition": "string" },
   "parameters": { "parameter_name": { "low": number, "base": number, "high": number, "unit": "string", "source": "string" } },
@@ -944,11 +957,10 @@ Always report BOTH sector-specific metrics AND cash-equivalent value. Return val
       "cost_per_outcome": { "low": number, "base": number, "high": number },
       "cost_per_outcome_name": "string"
     },
-    "cash_metric": {
-      "name": "Value per $10,000",
-      "values": { "low": number, "base": number, "high": number },
-      "cost_per_outcome": { "low": number, "base": number, "high": number },
-      "cost_per_outcome_name": "Cost per consumption-equivalent year"
+    "cash_benchmark": {
+      "multiples": { "low": number, "base": number, "high": number },
+      "units_of_value_per_dollar": { "low": number, "base": number, "high": number },
+      "givedirectly_baseline": 0.00335
     }
   },
   "sensitivity": [{ "parameter": "string", "low_value": number, "high_value": number, "base_outcome": number, "low_outcome": number, "high_outcome": number, "impact_range": number }]
@@ -961,15 +973,18 @@ NOTES on sector_metric (use the appropriate sector-specific metric):
 - For income: name="Value per $10,000", cost_per_outcome_name="Cost per consumption-equivalent year"
 - For mixed: use DALYs averted per $10,000 as the common metric (sum across pathways), or Value per $10,000 if the primary outcome is income/education
 
-NOTES on cash_metric: ALWAYS "Value per $10,000" and "Cost per consumption-equivalent year" for ALL intervention types. Convert from sector metrics using the cash-equivalent conversion formulas above.
+NOTES on cash_benchmark: Convert sector outcomes to units of value using the moral weights above, calculate units of value per dollar, then divide by GiveDirectly baseline (0.00335). The "multiples" field is the final "X times as cost-effective as cash transfers" number. Values above 1x mean more cost-effective than GiveDirectly. GiveWell's bar for top charities is typically 8x+.
 
 IMPORTANT:
 - All numbers must be valid JSON numbers (not strings, NaN, or Infinity)
 - Round to 2 decimal places
 - Include 10-20 parameters covering effect size, baseline rates, costs, all adjustment factors, coverage, discount rate, and benefit duration
-- Include 6-10 calculation steps showing the full chain
+- Include 8-12 calculation steps showing the full chain. The final steps MUST include:
+  1. The sector-specific metric (e.g., DALYs averted per $10,000)
+  2. Units of value per dollar (converting sector outcomes to units of value using moral weights)
+  3. Cost-effectiveness in multiples of cash transfers (= units of value per dollar / 0.00335)
 - For each calculation step:
-  - "description": A short, intuitive plain-English label explaining WHAT this step represents (e.g., "Deaths averted per child treated", "Apply adjustment factors", "Cost per death averted", "Total DALYs averted per $10,000"). Follow GiveWell's style — each label should be immediately understandable without reading the formula.
+  - "description": A short, intuitive plain-English label explaining WHAT this step represents (e.g., "Deaths averted per child treated", "Apply adjustment factors", "Cost per death averted", "Total DALYs averted per $10,000", "Units of value per dollar", "Cost-effectiveness in multiples of cash transfers"). Follow GiveWell's style — each label should be immediately understandable without reading the formula.
   - "formula": The mathematical formula showing HOW the value is computed (e.g., "= Baseline mortality × Effect size × Coverage", "= Step 3 × IV × EV × Counterfactual × Monitoring", "= Cost per person / Adjusted deaths averted"). Use parameter names, not raw numbers.
 - Be rigorous: use the research data provided. Cite sources.`;
 
@@ -1012,10 +1027,10 @@ const REPORT_AGENT_PROMPT = `You are a report generation agent producing a compr
 ### 4.2 Key parameters (table with low/base/high)
 ### 4.3 Results by scenario (table)
   - Present the primary metric for each scenario (low/base/high)
-  - Report BOTH sector-specific metrics AND cash-equivalent value:
+  - Report BOTH sector-specific metrics AND cost-effectiveness in multiples of cash transfers:
     - Sector metrics: Health uses DALYs averted per $10,000 and cost per DALY; Education uses LAYS per $10,000 and cost per LAYS; Income uses value per $10,000 and cost per consumption-equivalent year
-    - Cash equivalents: Always also report Value per $10,000 and Cost per consumption-equivalent year
-    - Compare cost per DALY to current cost-effectiveness thresholds: for low-income countries, use supply-side thresholds of ~$50-350/DALY (Ochalek et al. 2018; Woods et al. 2016) rather than the retired WHO-CHOICE GDP/capita rule. For context, GiveWell uses an 8x bar (~$50/DALY equivalent for direct comparison)
+    - GiveWell benchmark: Always report the "multiples of cash transfers" — how many times more cost-effective than GiveDirectly. Values above 8x typically meet GiveWell's bar for top charities.
+    - Compare cost per DALY to current cost-effectiveness thresholds: for low-income countries, use supply-side thresholds of ~$50-350/DALY (Ochalek et al. 2018; Woods et al. 2016) rather than the retired WHO-CHOICE GDP/capita rule
     - For education, contextualize against comparable programs from J-PAL evidence reviews
 ### 4.4 Sensitivity analysis
 
@@ -1344,9 +1359,9 @@ compareRunBtn.addEventListener('click', () => {
   const names = entries.map(e => esc(e.data.intervention?.name || 'Untitled'));
   const metrics = entries.map(e => {
     const sm = e.data.results?.sector_metric || {};
-    const cm = e.data.results?.cash_metric || {};
+    const cb = e.data.results?.cash_benchmark || {};
     const info = getSectorMetricInfo(e.data);
-    return { name: sm.name || info.valuePerLabel, values: sm.values || {}, cost: sm.cost_per_outcome || {}, costName: sm.cost_per_outcome_name || info.costPerLabel || '', cashValues: cm.values || {}, cashCost: cm.cost_per_outcome || {} };
+    return { name: sm.name || info.valuePerLabel, values: sm.values || {}, cost: sm.cost_per_outcome || {}, costName: sm.cost_per_outcome_name || info.costPerLabel || '', multiples: cb.multiples || {} };
   });
 
   let html = '<table class="compare-table"><thead><tr><th>Metric</th>';
@@ -1378,9 +1393,9 @@ compareRunBtn.addEventListener('click', () => {
   metrics.forEach(m => { html += `<td>${m.cost.base != null ? '$' + fmt(m.cost.base) : '\u2014'}<br><span style="font-size:11px;color:var(--text-light);">${esc(m.costName)}</span></td>`; });
   html += '</tr>';
 
-  // Cash-equivalent value (base)
-  html += '<tr><td>Value per $10,000 (cash equiv.)</td>';
-  metrics.forEach(m => { html += `<td><strong>${m.cashValues.base != null ? parseFloat(m.cashValues.base).toFixed(1) : '\u2014'}</strong></td>`; });
+  // Multiples of cash transfers (base)
+  html += '<tr style="font-weight:700;background:#f8fafc;"><td>Multiples of cash transfers</td>';
+  metrics.forEach(m => { html += `<td>${m.multiples.base != null ? parseFloat(m.multiples.base).toFixed(1) + 'x' : '\u2014'}</td>`; });
   html += '</tr>';
 
   // Cost range
@@ -1816,7 +1831,7 @@ Produce the full CEA with parameters, calculations, results, and sensitivity ana
     const reportInput = `Generate a CEA write-up for "${scope.intervention_name}".
 
 ## Output Format
-Report BOTH sector-specific metrics (DALYs for health, LAYS for education, value for income) AND cash-equivalent value (Value per $10,000).
+Report BOTH sector-specific metrics (DALYs for health, LAYS for education, value for income) AND cost-effectiveness in multiples of cash transfers (GiveWell benchmark).
 
 ## Intervention
 ${JSON.stringify(scope, null, 2)}
@@ -2207,7 +2222,7 @@ ${JSON.stringify(editedParams, null, 2)}
 ## Original Calculations (for reference on methodology)
 ${JSON.stringify(originalData.calculations, null, 2)}
 
-Recompute all calculation steps using the modified parameters and produce updated results. Report both sector-specific metrics and cash-equivalent value. Return the full JSON inside <cea-results> tags, using the same structure as before.`;
+Recompute all calculation steps using the modified parameters and produce updated results. Report both sector-specific metrics and cost-effectiveness in multiples of cash transfers. Return the full JSON inside <cea-results> tags, using the same structure as before.`;
 
   try {
     const response = await callAgent(
@@ -2263,7 +2278,7 @@ function createSummaryCards(data) {
   wrap.className = 'summary-card';
   const info = getSectorMetricInfo(data);
   const sm = data?.results?.sector_metric || {};
-  const cm = data?.results?.cash_metric || {};
+  const cb = data?.results?.cash_benchmark || {};
   const sectorVals = sm.values || {};
 
   // Sector metric cards
@@ -2297,40 +2312,25 @@ function createSummaryCards(data) {
     wrap.appendChild(costRow);
   }
 
-  // Cash-equivalent metric row
-  const cashVals = cm.values || {};
-  if (cashVals.base != null) {
-    const cashLabel = document.createElement('div');
-    cashLabel.style.cssText = 'margin-top:12px;font-size:12px;font-weight:600;color:var(--text-light);';
-    cashLabel.textContent = 'Cash Equivalents';
-    wrap.appendChild(cashLabel);
+  // GiveWell benchmark: multiples of cash transfers
+  const multiples = cb.multiples || {};
+  if (multiples.base != null) {
+    const benchLabel = document.createElement('div');
+    benchLabel.style.cssText = 'margin-top:12px;font-size:12px;font-weight:600;color:var(--text-light);';
+    benchLabel.textContent = 'GiveWell Benchmark: Multiples of Cash Transfers';
+    wrap.appendChild(benchLabel);
 
-    const cashRow = document.createElement('div');
-    cashRow.style.cssText = 'display:flex;gap:12px;margin-top:4px;';
-    const cashName = cm.name || 'Value per $10,000';
+    const benchRow = document.createElement('div');
+    benchRow.style.cssText = 'display:flex;gap:12px;margin-top:4px;';
     ['low','base','high'].forEach(scenario => {
       const chip = document.createElement('div');
-      chip.style.cssText = 'flex:1;text-align:center;padding:8px;background:#f8fafc;border-radius:6px;font-size:12px;';
-      const cVal = cashVals[scenario];
-      chip.innerHTML = `<span style="color:var(--text-light);">${cashName}:</span> <strong>${cVal != null ? fmt(cVal) : '\u2014'}</strong>`;
-      cashRow.appendChild(chip);
+      const mVal = multiples[scenario];
+      const meetsBar = mVal != null && mVal >= 8;
+      chip.style.cssText = `flex:1;text-align:center;padding:10px;background:${meetsBar ? '#f0fdf4' : '#fef2f2'};border-radius:6px;font-size:13px;border:1px solid ${meetsBar ? '#bbf7d0' : '#fecaca'};`;
+      chip.innerHTML = `<strong style="font-size:18px;">${mVal != null ? parseFloat(mVal).toFixed(1) + 'x' : '\u2014'}</strong><br><span style="color:var(--text-light);font-size:11px;">${meetsBar ? 'Meets 8x bar' : 'Below 8x bar'}</span>`;
+      benchRow.appendChild(chip);
     });
-    wrap.appendChild(cashRow);
-
-    const cashCost = cm.cost_per_outcome;
-    if (cashCost) {
-      const cashCostRow = document.createElement('div');
-      cashCostRow.style.cssText = 'display:flex;gap:12px;margin-top:4px;';
-      const cashCostName = cm.cost_per_outcome_name || 'Cost per consumption-equivalent year';
-      ['low','base','high'].forEach(scenario => {
-        const chip = document.createElement('div');
-        chip.style.cssText = 'flex:1;text-align:center;padding:8px;background:#f8fafc;border-radius:6px;font-size:12px;';
-        const cVal = cashCost[scenario];
-        chip.innerHTML = `<span style="color:var(--text-light);">${cashCostName}:</span> <strong>$${cVal != null ? fmt(cVal) : '\u2014'}</strong>`;
-        cashCostRow.appendChild(chip);
-      });
-      wrap.appendChild(cashCostRow);
-    }
+    wrap.appendChild(benchRow);
   }
 
   return wrap;
@@ -2366,7 +2366,7 @@ function createCalcTable(calcs) {
     const name = c.description || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     const formulaText = c.formula || c.notes || '';
     const kl = key.toLowerCase();
-    const isFinal = kl.includes('dalys_per') || kl.includes('dalys_averted_per') || kl.includes('lays_per') || kl.includes('cost_per_daly') || kl.includes('cost_per_lays') || kl.includes('value_per_10') || kl.includes('cost_per_consumption');
+    const isFinal = kl.includes('dalys_per') || kl.includes('dalys_averted_per') || kl.includes('lays_per') || kl.includes('cost_per_daly') || kl.includes('cost_per_lays') || kl.includes('value_per_10') || kl.includes('cost_per_consumption') || kl.includes('multiples') || kl.includes('cash_transfer') || kl.includes('units_of_value');
     html += `<tr style="${isFinal ? 'font-weight:700;background:#f8fafc;' : ''}">
       <td>${esc(name)}</td>
       <td style="font-size:0.85em;color:#666;">${esc(formulaText)}</td>
